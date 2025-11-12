@@ -24,7 +24,7 @@ class Database:
             )
         ''')
         
-        # Таблица заказов
+        # Таблица заказов (упрощенная версия)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

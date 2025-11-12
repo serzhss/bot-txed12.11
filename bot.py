@@ -465,11 +465,8 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
     db.update_user_activity(user.id)
     await update.message.reply_text("Пожалуйста, используйте кнопки меню для навигации.")
 
-def main():
-    """Основная функция запуска бота"""
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
-    
+def setup_handlers(application):
+    """Настройка обработчиков"""
     # УПРОЩЕННЫЙ ConversationHandler - только один шаг
     order_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
@@ -517,9 +514,38 @@ def main():
     
     # Обработчик неизвестных сообщений
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
+
+async def main():
+    """Основная функция запуска бота"""
+    # Создаем приложение
+    application = Application.builder().token(BOT_TOKEN).build()
     
-    # Запускаем бота с polling
-    application.run_polling()
+    # Настраиваем обработчики
+    setup_handlers(application)
+    
+    # НАСТРАИВАЕМ ВЕБХУК ПРИНУДИТЕЛЬНО
+    PORT = int(os.environ.get('PORT', 8443))
+    RAILWAY_STATIC_URL = os.environ.get('RAILWAY_STATIC_URL', '')
+    
+    if RAILWAY_STATIC_URL:
+        logger.info(f"Using webhook with URL: https://{RAILWAY_STATIC_URL}")
+        # Устанавливаем вебхук
+        await application.bot.set_webhook(
+            url=f"https://{RAILWAY_STATIC_URL}/webhook",
+            secret_token='WEBHOOK_SECRET'
+        )
+        
+        # Запускаем вебхук
+        await application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"https://{RAILWAY_STATIC_URL}/webhook",
+            secret_token='WEBHOOK_SECRET'
+        )
+    else:
+        logger.info("RAILWAY_STATIC_URL not found, using polling")
+        # Только для разработки - используем polling
+        await application.run_polling()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

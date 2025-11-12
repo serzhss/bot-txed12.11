@@ -43,11 +43,11 @@ BIKE_DESCRIPTIONS = {
 Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.'''
 }
 
-# Размеры рам
+# Размеры рам (исправленные названия для избежания проблем с regex)
 FRAME_SIZES = {
-    'M (17")': '163-177 см',
-    'L (19")': '173-187 см', 
-    'XL (21")': '182-197 см'
+    'M (17 дюймов)': '163-177 см',
+    'L (19 дюймов)': '173-187 см', 
+    'XL (21 дюйм)': '182-197 см'
 }
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -426,9 +426,9 @@ def main():
     application.add_handler(MessageHandler(filters.Regex('^⬅️ Назад$'), handle_back))
     application.add_handler(MessageHandler(filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
     
-    # Обработчики выбора моделей и размеров
+    # Обработчики выбора моделей и размеров (исправленные regex)
     application.add_handler(MessageHandler(filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    application.add_handler(MessageHandler(filters.Regex('^(M \(17"\)|L \(19"\)|XL \(21"\))$'), handle_frame_size))
+    application.add_handler(MessageHandler(filters.Regex('^(M \\(17 дюймов\\)|L \\(19 дюймов\\)|XL \\(21 дюйм\\))$'), handle_frame_size))
     
     # Обработчик для рассылки (любое сообщение когда ожидается рассылка)
     application.add_handler(MessageHandler(

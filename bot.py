@@ -27,22 +27,69 @@ ORDER_NAME, ORDER_PHONE, ORDER_EMAIL = range(3)
 # Инициализация базы данных
 db = Database()
 
-# Тексты для моделей велосипедов
+# Тексты и фотографии для моделей велосипедов
 BIKE_DESCRIPTIONS = {
-    'PRIMO': '''Маневренная, универсальная модель для активного фанового катания в холмистой местности.
+    'PRIMO': {
+        'description': '''Маневренная, универсальная модель для активного фанового катания в холмистой местности.
 Велосипед базового уровня в нашей линейке, для зрелых любителей качества и современных тенденции велостроения. Розничная цена 50 000руб.''',
+        'photos': [
+            'https://optim.tildacdn.com/tild3663-6265-4666-b535-613361663030/-/format/webp/Photo-44.webp',
+            'https://optim.tildacdn.com/tild6263-6233-4537-a436-633033386132/-/format/webp/Photo-47.webp',
+            'https://optim.tildacdn.com/tild3038-3263-4935-a533-326637363030/-/format/webp/Photo-49.webp',
+            'https://optim.tildacdn.com/tild3831-3637-4836-b836-363934653638/-/format/webp/Photo-50.webp',
+            'https://optim.tildacdn.com/tild3734-6433-4835-b639-623036366165/-/format/webp/Photo-57.webp'
+        ]
+    },
     
-    'TERZO': '''Спортивная модель для профессионального использования. 
+    'TERZO': {
+        'description': '''Спортивная модель для профессионального использования. 
 Идеальный выбор для соревнований и тренировок. Премиальное качество сборки. Розничная цена 75 000руб.''',
+        'photos': [
+            'https://optim.tildacdn.com/tild6165-6635-4737-a532-303866623732/-/format/webp/Photo-1.webp',
+            'https://optim.tildacdn.com/tild3866-3634-4337-b030-666134326134/-/format/webp/Photo-3.webp',
+            'https://optim.tildacdn.com/tild3232-6462-4263-a564-333965326565/-/format/webp/Photo-4.webp',
+            'https://optim.tildacdn.com/tild6330-3863-4234-a162-326465613431/-/format/webp/Photo-6.webp',
+            'https://optim.tildacdn.com/tild3339-3737-4462-a239-323865323936/-/format/webp/Photo-8.webp'
+        ]
+    },
     
-    'ULTIMO': '''Флагманская модель с инновационными технологиями.
+    'ULTIMO': {
+        'description': '''Флагманская модель с инновационными технологиями.
 Максимальная производительность и комфорт. Для самых требовательных велосипедистов. Розничная цена 120 000руб.''',
+        'photos': [
+            'https://optim.tildacdn.com/tild3634-6164-4532-a639-383334633561/-/format/webp/Photo-58.webp',
+            'https://optim.tildacdn.com/tild3238-6530-4431-a135-346665323065/-/format/webp/Photo-61.webp',
+            'https://optim.tildacdn.com/tild3135-3365-4363-b236-346363303238/-/format/webp/Photo-62.webp',
+            'https://optim.tildacdn.com/tild3962-6133-4636-b236-313336356163/-/format/webp/Photo-67.webp'
+        ]
+    },
     
-    'TESORO': '''Городской велосипед с элегантным дизайном.
+    'TESORO': {
+        'description': '''Городской велосипед с элегантным дизайном.
 Идеален для повседневного использования и прогулок по городу. Стиль и практичность. Розничная цена 45 000руб.''',
+        'photos': [
+            'https://optim.tildacdn.com/tild3661-3336-4362-a130-326639613866/-/format/webp/Photo-13.webp',
+            'https://optim.tildacdn.com/tild6131-3239-4237-a465-346663376637/-/format/webp/Photo-14.webp',
+            'https://optim.tildacdn.com/tild3732-3431-4132-b266-636138336465/-/format/webp/Photo-17.webp',
+            'https://optim.tildacdn.com/tild3835-3233-4337-b337-366431643565/-/format/webp/Photo-18.webp',
+            'https://optim.tildacdn.com/tild6330-6564-4434-a236-393039343938/-/format/webp/Photo-21.webp',
+            'https://optim.tildacdn.com/tild6531-3662-4733-a635-343765343739/-/format/webp/Photo-24.webp'
+        ]
+    },
     
-    'OTTIMO': '''Горный велосипед для экстремальных условий.
-Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.'''
+    'OTTIMO': {
+        'description': '''Горный велосипед для экстремальных условий.
+Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.''',
+        'photos': [
+            'https://optim.tildacdn.com/tild6662-6461-4138-a661-323964656231/-/format/webp/Photo-27.webp',
+            'https://optim.tildacdn.com/tild3333-6366-4032-a632-356637323136/-/format/webp/Photo-30.webp',
+            'https://optim.tildacdn.com/tild6435-3566-4231-a232-303332323339/-/format/webp/Photo-35.webp',
+            'https://optim.tildacdn.com/tild3365-6263-4039-b632-653338326235/-/format/webp/Photo-36.webp',
+            'https://optim.tildacdn.com/tild3761-6261-4332-b839-653934353539/-/format/webp/Photo-37.webp',
+            'https://optim.tildacdn.com/tild3432-3963-4162-b565-373563326635/-/format/webp/Photo-38.webp',
+            'https://optim.tildacdn.com/tild3634-3132-4734-a666-336634666538/-/format/webp/Photo-43.webp'
+        ]
+    }
 }
 
 # Размеры рам
@@ -151,13 +198,34 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.update_user_activity(user.id)
     
     if bike_model in BIKE_DESCRIPTIONS:
-        description = BIKE_DESCRIPTIONS[bike_model]
+        bike_data = BIKE_DESCRIPTIONS[bike_model]
+        description = bike_data['description']
+        photos = bike_data['photos']
         context.user_data['selected_bike'] = bike_model
         
+        # Отправляем первую фотографию с описанием
+        await update.message.reply_photo(
+            photo=photos[0],
+            caption=f"{bike_model}\n\n{description}"
+        )
+        
+        # Отправляем остальные фотографии
+        for i, photo_url in enumerate(photos[1:], 2):
+            await update.message.reply_photo(
+                photo=photo_url,
+                caption=f"{bike_model} - фото {i}/{len(photos)}"
+            )
+            # Небольшая задержка между отправкой фото
+            await asyncio.sleep(0.5)
+        
+        # Кнопки после показа всех фото
         keyboard = [['🛒 Заказать', '⬅️ Назад к моделям']]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
-        await update.message.reply_text(description, reply_markup=reply_markup)
+        await update.message.reply_text(
+            f'Хотите заказать {bike_model} или посмотреть другие модели?',
+            reply_markup=reply_markup
+        )
 
 async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало оформления заказа - выбор размера рамы"""

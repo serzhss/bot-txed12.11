@@ -18,7 +18,10 @@ logger = logging.getLogger(__name__)
 # Токен бота из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN environment variable is required! Set it in your environment variables.")
+    logger.error("❌ BOT_TOKEN environment variable is required! Set it in Railway environment variables.")
+    logger.info("💡 How to fix: Go to your Railway project -> Settings -> Variables -> Add BOT_TOKEN")
+    # Используем fallback для тестирования, но в продакшене это должно быть установлено
+    BOT_TOKEN = "your_bot_token_here"  # Замените на ваш токен временно
 
 # ID администратора
 ADMIN_ID = 445570258

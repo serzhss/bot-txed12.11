@@ -16,13 +16,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Токен бота из переменных окружения
-BOT_TOKEN = os.getenv('BOT_TOKEN', '7819916914:AAHuOv_6eph7IZ2OYyqq-zKz22yr_G4MIPk')
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN environment variable is required! Set it in your environment variables.")
 
 # ID администратора
 ADMIN_ID = 445570258
 
 # Состояния для ConversationHandler
-ORDER_NAME_PHONE = 1
+ORDER_NAME_PHONE, NAME, PHONE = range(3)
 
 # Инициализация базы данных
 db = Database()
@@ -188,7 +190,7 @@ async def handle_specialist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.update_user_activity(user.id)
     
     # Отправляем уведомление администратору
-    user_info = f"Пользователь {user.first_name} (ID: {user.id}) хочет связаться с Вами"
+    user_info = f"👨‍💼 ПОЛЬЗОВАТЕЛЬ ХОЧЕТ СВЯЗАТЬСЯ\n\nИмя: {user.first_name}\nID: {user.id}\nUsername: @{user.username or 'не указан'}"
     
     try:
         await context.bot.send_message(ADMIN_ID, user_info)
@@ -212,7 +214,7 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Отправляем первую фотографию с описанием
         await update.message.reply_photo(
             photo=photos[0],
-            caption=f"{bike_model}\n\n{description}"
+            caption=f"🚲 {bike_model}\n\n{description}"
         )
         
         # Отправляем остальные фотографии
@@ -238,11 +240,18 @@ async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.message.from_user
     db.update_user_activity(user.id)
     
+    # Проверяем, что модель выбрана
+    if 'selected_bike' not in context.user_data:
+        await update.message.reply_text("❌ Сначала выберите модель велосипеда")
+        return ConversationHandler.END
+    
     keyboard = [[size] for size in FRAME_SIZES]
-    keyboard.append(['⬅️ Назад'])
+    keyboard.append(['⬅️ Отмена заказа'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text('Выберите размер рамы:', reply_markup=reply_markup)
+    
+    return ORDER_NAME_PHONE
 
 async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора размера рамы"""
@@ -254,57 +263,85 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['frame_size'] = frame_size
         
         await update.message.reply_text(
-            'Отлично! Теперь введите ваши данные для оформления заказа.\n\n'
-            'Введите ваше Имя и номер телефона:',
+            '📝 Введите ваше имя:',
             reply_markup=ReplyKeyboardRemove()
         )
-        return ORDER_NAME_PHONE
+        return NAME
     
-    await update.message.reply_text("Пожалуйста, выберите размер рамы из предложенных вариантов.")
-    return ConversationHandler.END
+    await update.message.reply_text("❌ Пожалуйста, выберите размер рамы из предложенных вариантов.")
+    return ORDER_NAME_PHONE
 
-async def get_order_name_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение имени и телефона пользователя"""
+async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение имени пользователя"""
     user = update.message.from_user
     db.update_user_activity(user.id)
     
-    contact_info = update.message.text
+    user_name = update.message.text.strip()
+    
+    if len(user_name) < 2:
+        await update.message.reply_text("❌ Имя слишком короткое. Введите ваше настоящее имя:")
+        return NAME
+    
+    context.user_data['user_name'] = user_name
+    
+    await update.message.reply_text(
+        '📞 Теперь введите ваш номер телефона:'
+    )
+    return PHONE
+
+async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение телефона пользователя"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
+    user_phone = update.message.text.strip()
+    
+    # Базовая проверка номера телефона
+    if len(user_phone) < 5:
+        await update.message.reply_text("❌ Номер телефона слишком короткий. Введите корректный номер:")
+        return PHONE
     
     # Сохраняем заказ в базу данных
-    db.add_order(
-        user_id=user.id,
-        user_name=contact_info,
-        user_phone=contact_info,
-        user_email="Не указан",
-        bike_model=context.user_data['selected_bike'],
-        frame_size=context.user_data['frame_size']
-    )
-    
-    # Отправляем уведомление администратору
-    order_info = f"""🎯 НОВЫЙ ЗАКАЗ!
+    try:
+        db.add_order(
+            user_id=user.id,
+            user_name=context.user_data['user_name'],
+            user_phone=user_phone,
+            user_email="Не указан",
+            bike_model=context.user_data['selected_bike'],
+            frame_size=context.user_data['frame_size']
+        )
+        
+        # Отправляем уведомление администратору
+        order_info = f"""🎯 НОВЫЙ ЗАКАЗ!
 
 Модель: {context.user_data['selected_bike']}
 Размер рамы: {context.user_data['frame_size']}
-Контактные данные: {contact_info}
-ID пользователя: {user.id}"""
-    
-    try:
+Имя: {context.user_data['user_name']}
+Телефон: {user_phone}
+ID пользователя: {user.id}
+Username: @{user.username or 'не указан'}"""
+        
         await context.bot.send_message(ADMIN_ID, order_info)
+        
+        # Возвращаем в главное меню
+        keyboard = [
+            ['🚲 Каталог', 'ℹ️ О нас'],
+            ['👨‍💼 Позвать специалиста']
+        ]
+        
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        
+        await update.message.reply_text(
+            '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
+            reply_markup=reply_markup
+        )
+        
     except Exception as e:
-        logger.error(f"Error sending order notification: {e}")
-    
-    # Возвращаем в главное меню (без админ-панели)
-    keyboard = [
-        ['🚲 Каталог', 'ℹ️ О нас'],
-        ['👨‍💼 Позвать специалиста']
-    ]
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
-        reply_markup=reply_markup
-    )
+        logger.error(f"Error saving order: {e}")
+        await update.message.reply_text(
+            "❌ Произошла ошибка при сохранении заказа. Пожалуйста, попробуйте позже."
+        )
     
     # Очищаем данные пользователя
     context.user_data.clear()
@@ -323,7 +360,7 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        'Оформление заказа отменено.',
+        '❌ Оформление заказа отменено.',
         reply_markup=reply_markup
     )
     
@@ -334,11 +371,12 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик админ-панели"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа к админ-панели")
         return
+    
+    db.update_user_activity(user.id)
     
     keyboard = [
         ['📊 Статистика', '📢 Рассылка'],
@@ -351,11 +389,12 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показ статистики"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
         return
+    
+    db.update_user_activity(user.id)
     
     stats = db.get_user_stats()
     
@@ -363,22 +402,24 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 👥 Всего пользователей: {stats['total_users']}
 ✅ Активных сегодня: {stats['active_today']}
-🆕 Новых сегодня: {stats['new_today']}"""
-    
+🆕 Новых сегодня: {stats['new_today']}
+🛒 Всего заказов: {db.get_total_orders()}"""
+
     await update.message.reply_text(stats_text)
 
 async def handle_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало рассылки"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
         return
     
+    db.update_user_activity(user.id)
+    
     context.user_data['awaiting_broadcast'] = True
     await update.message.reply_text(
-        'Введите сообщение для рассылки:',
+        '📢 Введите сообщение для рассылки:',
         reply_markup=ReplyKeyboardMarkup([['❌ Отмена рассылки']], resize_keyboard=True)
     )
 
@@ -399,6 +440,8 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
         try:
             await context.bot.send_message(user_data[0], update.message.text)
             successful += 1
+            # Задержка чтобы не превысить лимиты Telegram
+            await asyncio.sleep(0.1)
         except Exception as e:
             failed += 1
             logger.error(f"Error sending to user {user_data[0]}: {e}")
@@ -422,11 +465,12 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
 async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показ списка пользователей"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
         return
+    
+    db.update_user_activity(user.id)
     
     users = db.get_all_users()
     
@@ -436,7 +480,7 @@ async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     users_text = "👥 Список пользователей:\n\n"
     for i, user_data in enumerate(users[:50], 1):
-        user_id, username, first_name, last_name = user_data
+        user_id, username, first_name, last_name, created_at = user_data
         name = f"{first_name or ''} {last_name or ''}".strip() or 'Не указано'
         username = f"@{username}" if username else 'Не указан'
         users_text += f"{i}. ID: {user_id}\n   Имя: {name}\n   Username: {username}\n\n"
@@ -463,24 +507,42 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
     """Обработчик неизвестных сообщений"""
     user = update.message.from_user
     db.update_user_activity(user.id)
-    await update.message.reply_text("Пожалуйста, используйте кнопки меню для навигации.")
+    await update.message.reply_text("❌ Пожалуйста, используйте кнопки меню для навигации.")
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ошибок"""
+    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+    
+    try:
+        if update and update.message:
+            await update.message.reply_text("❌ Произошла непредвиденная ошибка. Пожалуйста, попробуйте еще раз.")
+    except Exception as e:
+        logger.error(f"Error in error handler: {e}")
 
 def main():
     """Основная функция запуска бота"""
     # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # УПРОЩЕННЫЙ ConversationHandler - только один шаг
+    # ConversationHandler для оформления заказа
     order_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
         states={
             ORDER_NAME_PHONE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_name_phone)
+                MessageHandler(filters.TEXT & filters.Regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size),
+                MessageHandler(filters.TEXT & filters.Regex('^⬅️ Отмена заказа$'), cancel_order)
+            ],
+            NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)
+            ],
+            PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)
             ],
         },
         fallbacks=[
-            MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order),
-            CommandHandler('cancel', cancel_order)
+            MessageHandler(filters.TEXT & filters.Regex('^⬅️ Отмена заказа$'), cancel_order),
+            CommandHandler('cancel', cancel_order),
+            MessageHandler(filters.ALL, cancel_order)
         ]
     )
     
@@ -504,7 +566,6 @@ def main():
     
     # Обработчики выбора моделей и размеров
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size))
     
     # Обработчик для рассылки
     application.add_handler(MessageHandler(
@@ -518,8 +579,11 @@ def main():
     # Обработчик неизвестных сообщений
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
     
+    # Добавляем обработчик ошибок
+    application.add_error_handler(error_handler)
+    
     # Запускаем бота с polling
-    logger.info("Starting bot with polling...")
+    logger.info("✅ Starting bot with polling...")
     application.run_polling()
 
 if __name__ == '__main__':

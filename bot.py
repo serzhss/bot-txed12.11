@@ -3,6 +3,8 @@ import os
 import logging
 import asyncio
 from typing import Any
+import telegram
+print("TELEGRAM BOT VERSION:", telegram.__version__)
 
 from telegram import (
     Update,
@@ -457,3 +459,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+

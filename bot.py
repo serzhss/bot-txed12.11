@@ -44,12 +44,8 @@ BIKE_DESCRIPTIONS = {
 Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.'''
 }
 
-# Размеры рам
-FRAME_SIZES = {
-    'M (17 дюймов)': '163-177 см',
-    'L (19 дюймов)': '173-187 см', 
-    'XL (21 дюйм)': '182-197 см'
-}
+# Размеры рам (упрощенные названия)
+FRAME_SIZES = ['M (17")', 'L (19")', 'XL (21")']
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
@@ -151,7 +147,7 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало оформления заказа - выбор размера рамы"""
-    keyboard = [[size] for size in FRAME_SIZES.keys()]
+    keyboard = [[size] for size in FRAME_SIZES]
     keyboard.append(['⬅️ Назад'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -304,7 +300,7 @@ async def handle_broadcast_start(update: Update, context: ContextTypes.DEFAULT_T
     
     context.user_data['awaiting_broadcast'] = True
     await update.message.reply_text(
-        'Введите сообщение для рассылки (текст или текст + фото):',
+        'Введите сообщение для рассылки:',
         reply_markup=ReplyKeyboardMarkup([['❌ Отмена рассылки']], resize_keyboard=True)
     )
 
@@ -323,11 +319,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     
     for user_data in users:
         try:
-            if update.message.text:
-                await context.bot.send_message(user_data[0], update.message.text)
-            elif update.message.photo:
-                await context.bot.send_photo(user_data[0], update.message.photo[-1].file_id, caption=update.message.caption)
-            
+            await context.bot.send_message(user_data[0], update.message.text)
             successful += 1
         except Exception as e:
             failed += 1
@@ -364,7 +356,7 @@ async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     users_text = "👥 Список пользователей:\n\n"
-    for i, user_data in enumerate(users[:50], 1):  # Ограничиваем первые 50
+    for i, user_data in enumerate(users[:50], 1):
         user_id, username, first_name, last_name = user_data
         name = f"{first_name or ''} {last_name or ''}".strip() or 'Не указано'
         username = f"@{username}" if username else 'Не указан'
@@ -410,7 +402,7 @@ def main():
             ORDER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_phone)],
             ORDER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_email)],
         },
-        fallbacks=[MessageHandler(filters.TEXT & filters.Regex('^❌ Отмена$'), cancel_order)]
+        fallbacks=[MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order)]
     )
     
     # Обработчики сообщений
@@ -429,11 +421,11 @@ def main():
     
     # Обработчики выбора моделей и размеров
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(M \\(17 дюймов\\)|L \\(19 дюймов\\)|XL \\(21 дюйм\\))$'), handle_frame_size))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size))
     
     # Обработчик для рассылки
     application.add_handler(MessageHandler(
-        (filters.TEXT | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
+        filters.TEXT & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
         handle_broadcast_message
     ))
     
@@ -444,20 +436,13 @@ def main():
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
     
     # Запускаем бота
-    if os.getenv('RAILWAY_STATIC_URL'):
-        # На Railway используем веб-хук
-        port = int(os.environ.get('PORT', 8443))
-        webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL')}"
-        
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            webhook_url=webhook_url,
-            secret_token='WEBHOOK_SECRET'
-        )
-    else:
-        # Локально используем polling
-        application.run_polling()
+    port = int(os.environ.get('PORT', 8443))
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        webhook_url="https://your-app-name.railway.app/",
+        secret_token='WEBHOOK_SECRET'
+    )
 
 if __name__ == '__main__':
     main()

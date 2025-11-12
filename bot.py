@@ -259,9 +259,9 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
         return ORDER_NAME
-    else:
-        await update.message.reply_text("Пожалуйста, выберите размер рамы из предложенных вариантов.")
-        return ConversationHandler.END
+    
+    await update.message.reply_text("Пожалуйста, выберите размер рамы из предложенных вариантов.")
+    return ConversationHandler.END
 
 async def get_order_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение имени пользователя"""
@@ -492,24 +492,34 @@ def main():
     # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # ConversationHandler для оформления заказа
+    # ConversationHandler для оформления заказа - УПРОЩЕННАЯ ВЕРСИЯ
     order_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
         states={
-            ORDER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_name)],
-            ORDER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_phone)],
-            ORDER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_email)],
+            ORDER_NAME: [
+                MessageHandler(filters.TEXT, get_order_name)
+            ],
+            ORDER_PHONE: [
+                MessageHandler(filters.TEXT, get_order_phone)
+            ],
+            ORDER_EMAIL: [
+                MessageHandler(filters.TEXT, get_order_email)
+            ],
         },
         fallbacks=[
             MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order),
-            MessageHandler(filters.COMMAND, cancel_order)
-        ]
+            CommandHandler('cancel', cancel_order)
+        ],
+        allow_reentry=True
     )
     
     # Обработчики сообщений
     application.add_handler(CommandHandler('start', start_command))
     application.add_handler(CommandHandler('admin', admin_command))
+    application.add_handler(CommandHandler('cancel', cancel_order))
     application.add_handler(order_conv_handler)
+    
+    # Обработчики кнопок
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), handle_specialist))

@@ -53,14 +53,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     db.add_user(user.id, user.username, user.first_name, user.last_name)
     
-    # Главное меню
+    # Главное меню (без админ-панели)
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -69,6 +66,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'Выберите нужный раздел:',
         reply_markup=reply_markup
     )
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /admin"""
+    user = update.message.from_user
+    
+    if user.id != ADMIN_ID:
+        await update.message.reply_text("❌ У вас нет доступа к админ-панели")
+        return
+    
+    keyboard = [
+        ['📊 Статистика', '📢 Рассылка'],
+        ['👥 Список пользователей', '⬅️ Выйти из админки']
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text('⚙️ Панель администратора:', reply_markup=reply_markup)
 
 async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки Каталог"""
@@ -214,14 +227,11 @@ ID пользователя: {user.id}"""
     except Exception as e:
         logger.error(f"Error sending order notification: {e}")
     
-    # Возвращаем в главное меню
+    # Возвращаем в главное меню (без админ-панели)
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -242,9 +252,6 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -378,9 +385,6 @@ async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ['👨‍💼 Позвать специалиста']
     ]
     
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
-    
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text('Главное меню:', reply_markup=reply_markup)
 
@@ -408,6 +412,7 @@ def main():
     
     # Обработчики сообщений
     application.add_handler(CommandHandler('start', start_command))
+    application.add_handler(CommandHandler('admin', admin_command))  # Команда /admin
     application.add_handler(order_conv_handler)
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))

@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters,
@@ -435,7 +436,7 @@ def main():
     # Обработчик неизвестных сообщений
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
     
-    # Запускаем бота с polling (проще для начала)
+    # Запускаем бота с polling
     application.run_polling()
 
 if __name__ == '__main__':

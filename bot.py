@@ -132,6 +132,9 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки Каталог"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     keyboard = [
         ['PRIMO', 'TERZO', 'ULTIMO'],
         ['TESORO', 'OTTIMO', '⬅️ Назад']
@@ -141,6 +144,9 @@ async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки О нас"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     about_text = """О нас | Официальный импортер TXED в России
 
 Компания "СИБВЕЛО" рада представить себя как официального импортера бренда TXED в России. Мы гордимся тем, что предлагаем российским потребителям качественную продукцию с 40-летней историей.
@@ -229,6 +235,9 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало оформления заказа - выбор размера рамы"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     keyboard = [[size] for size in FRAME_SIZES]
     keyboard.append(['⬅️ Назад'])
     
@@ -250,9 +259,15 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardRemove()
         )
         return ORDER_NAME
+    else:
+        await update.message.reply_text("Пожалуйста, выберите размер рамы из предложенных вариантов.")
+        return ConversationHandler.END
 
 async def get_order_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение имени пользователя"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     context.user_data['user_name'] = update.message.text
     
     await update.message.reply_text('Введите ваш номер телефона:')
@@ -260,6 +275,9 @@ async def get_order_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_order_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение телефона пользователя"""
+    user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     context.user_data['user_phone'] = update.message.text
     
     await update.message.reply_text('Введите ваш email:')
@@ -268,6 +286,8 @@ async def get_order_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_order_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение email и завершение заказа"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
+    
     context.user_data['user_email'] = update.message.text
     
     # Сохраняем заказ в базу данных
@@ -315,6 +335,7 @@ ID пользователя: {user.id}"""
 async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена оформления заказа"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
     
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
@@ -335,6 +356,7 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик админ-панели"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа к админ-панели")
@@ -351,6 +373,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показ статистики"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
@@ -369,6 +392,7 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Начало рассылки"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
@@ -420,6 +444,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
 async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показ списка пользователей"""
     user = update.message.from_user
+    db.update_user_activity(user.id)
     
     if user.id != ADMIN_ID:
         await update.message.reply_text("❌ У вас нет доступа")
@@ -475,12 +500,15 @@ def main():
             ORDER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_phone)],
             ORDER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_email)],
         },
-        fallbacks=[MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order)]
+        fallbacks=[
+            MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order),
+            MessageHandler(filters.COMMAND, cancel_order)
+        ]
     )
     
     # Обработчики сообщений
     application.add_handler(CommandHandler('start', start_command))
-    application.add_handler(CommandHandler('admin', admin_command))  # Команда /admin
+    application.add_handler(CommandHandler('admin', admin_command))
     application.add_handler(order_conv_handler)
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))

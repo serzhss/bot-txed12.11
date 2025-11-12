@@ -22,7 +22,7 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', '7819916914:AAHuOv_6eph7IZ2OYyqq-zKz22yr_G4MI
 ADMIN_ID = 445570258
 
 # Состояния для ConversationHandler
-ORDER_NAME, ORDER_PHONE, ORDER_EMAIL = range(3)
+ORDER_NAME_PHONE = 1
 
 # Инициализация базы данных
 db = Database()
@@ -255,47 +255,27 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             'Отлично! Теперь введите ваши данные для оформления заказа.\n\n'
-            'Введите ваше ФИО:',
+            'Введите ваше Имя и номер телефона:',
             reply_markup=ReplyKeyboardRemove()
         )
-        return ORDER_NAME
+        return ORDER_NAME_PHONE
     
     await update.message.reply_text("Пожалуйста, выберите размер рамы из предложенных вариантов.")
     return ConversationHandler.END
 
-async def get_order_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение имени пользователя"""
+async def get_order_name_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Получение имени и телефона пользователя"""
     user = update.message.from_user
     db.update_user_activity(user.id)
     
-    context.user_data['user_name'] = update.message.text
-    
-    await update.message.reply_text('Введите ваш номер телефона:')
-    return ORDER_PHONE
-
-async def get_order_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение телефона пользователя"""
-    user = update.message.from_user
-    db.update_user_activity(user.id)
-    
-    context.user_data['user_phone'] = update.message.text
-    
-    await update.message.reply_text('Введите ваш email:')
-    return ORDER_EMAIL
-
-async def get_order_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение email и завершение заказа"""
-    user = update.message.from_user
-    db.update_user_activity(user.id)
-    
-    context.user_data['user_email'] = update.message.text
+    contact_info = update.message.text
     
     # Сохраняем заказ в базу данных
     db.add_order(
         user_id=user.id,
-        user_name=context.user_data['user_name'],
-        user_phone=context.user_data['user_phone'],
-        user_email=context.user_data['user_email'],
+        user_name=contact_info,
+        user_phone=contact_info,
+        user_email="Не указан",
         bike_model=context.user_data['selected_bike'],
         frame_size=context.user_data['frame_size']
     )
@@ -305,9 +285,7 @@ async def get_order_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Модель: {context.user_data['selected_bike']}
 Размер рамы: {context.user_data['frame_size']}
-ФИО: {context.user_data['user_name']}
-Телефон: {context.user_data['user_phone']}
-Email: {context.user_data['user_email']}
+Контактные данные: {contact_info}
 ID пользователя: {user.id}"""
     
     try:
@@ -492,25 +470,18 @@ def main():
     # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # ConversationHandler для оформления заказа - УПРОЩЕННАЯ ВЕРСИЯ
+    # УПРОЩЕННЫЙ ConversationHandler - только один шаг
     order_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
         states={
-            ORDER_NAME: [
-                MessageHandler(filters.TEXT, get_order_name)
-            ],
-            ORDER_PHONE: [
-                MessageHandler(filters.TEXT, get_order_phone)
-            ],
-            ORDER_EMAIL: [
-                MessageHandler(filters.TEXT, get_order_email)
+            ORDER_NAME_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_name_phone)
             ],
         },
         fallbacks=[
             MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order),
             CommandHandler('cancel', cancel_order)
-        ],
-        allow_reentry=True
+        ]
     )
     
     # Обработчики сообщений

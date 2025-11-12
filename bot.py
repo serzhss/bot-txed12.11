@@ -1,9 +1,9 @@
 import os
 import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, 
-    ContextTypes, ConversationHandler, CallbackQueryHandler
+    ContextTypes, ConversationHandler
 )
 from database import Database
 
@@ -12,6 +12,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
 # Токен бота из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN', '7819916914:AAHuOv_6eph7IZ2OYyqq-zKz22yr_G4MIPk')
@@ -43,7 +44,7 @@ BIKE_DESCRIPTIONS = {
 Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.'''
 }
 
-# Размеры рам (исправленные названия для избежания проблем с regex)
+# Размеры рам
 FRAME_SIZES = {
     'M (17 дюймов)': '163-177 см',
     'L (19 дюймов)': '173-187 см', 
@@ -131,7 +132,7 @@ async def handle_specialist(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")
     except Exception as e:
         await update.message.reply_text("❌ Произошла ошибка при отправке уведомления. Попробуйте позже.")
-        logging.error(f"Error sending notification to admin: {e}")
+        logger.error(f"Error sending notification to admin: {e}")
 
 async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора модели велосипеда"""
@@ -214,7 +215,7 @@ ID пользователя: {user.id}"""
     try:
         await context.bot.send_message(ADMIN_ID, order_info)
     except Exception as e:
-        logging.error(f"Error sending order notification: {e}")
+        logger.error(f"Error sending order notification: {e}")
     
     # Возвращаем в главное меню
     keyboard = [
@@ -330,7 +331,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
             successful += 1
         except Exception as e:
             failed += 1
-            logging.error(f"Error sending to user {user_data[0]}: {e}")
+            logger.error(f"Error sending to user {user_data[0]}: {e}")
     
     # Возвращаем в админ-панель
     keyboard = [
@@ -403,41 +404,41 @@ def main():
     
     # ConversationHandler для оформления заказа
     order_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex('^🛒 Заказать$'), handle_order_start)],
+        entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
         states={
             ORDER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_name)],
             ORDER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_phone)],
             ORDER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_email)],
         },
-        fallbacks=[MessageHandler(filters.Regex('^❌ Отмена$'), cancel_order)]
+        fallbacks=[MessageHandler(filters.TEXT & filters.Regex('^❌ Отмена$'), cancel_order)]
     )
     
     # Обработчики сообщений
     application.add_handler(CommandHandler('start', start_command))
     application.add_handler(order_conv_handler)
-    application.add_handler(MessageHandler(filters.Regex('^🚲 Каталог$'), handle_catalog))
-    application.add_handler(MessageHandler(filters.Regex('^ℹ️ О нас$'), handle_about))
-    application.add_handler(MessageHandler(filters.Regex('^👨‍💼 Позвать специалиста$'), handle_specialist))
-    application.add_handler(MessageHandler(filters.Regex('^⚙️ Админ-панель$'), handle_admin_panel))
-    application.add_handler(MessageHandler(filters.Regex('^📊 Статистика$'), handle_admin_stats))
-    application.add_handler(MessageHandler(filters.Regex('^📢 Рассылка$'), handle_broadcast_start))
-    application.add_handler(MessageHandler(filters.Regex('^👥 Список пользователей$'), handle_users_list))
-    application.add_handler(MessageHandler(filters.Regex('^⬅️ Выйти из админки$'), handle_back))
-    application.add_handler(MessageHandler(filters.Regex('^⬅️ Назад$'), handle_back))
-    application.add_handler(MessageHandler(filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), handle_specialist))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⚙️ Админ-панель$'), handle_admin_panel))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📊 Статистика$'), handle_admin_stats))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📢 Рассылка$'), handle_broadcast_start))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👥 Список пользователей$'), handle_users_list))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Выйти из админки$'), handle_back))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), handle_back))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
     
-    # Обработчики выбора моделей и размеров (исправленные regex)
-    application.add_handler(MessageHandler(filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    application.add_handler(MessageHandler(filters.Regex('^(M \\(17 дюймов\\)|L \\(19 дюймов\\)|XL \\(21 дюйм\\))$'), handle_frame_size))
+    # Обработчики выбора моделей и размеров
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(M \\(17 дюймов\\)|L \\(19 дюймов\\)|XL \\(21 дюйм\\))$'), handle_frame_size))
     
-    # Обработчик для рассылки (любое сообщение когда ожидается рассылка)
+    # Обработчик для рассылки
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
+        (filters.TEXT | filters.PHOTO) & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
         handle_broadcast_message
     ))
     
     # Обработчик отмены рассылки
-    application.add_handler(MessageHandler(filters.Regex('^❌ Отмена рассылки$'), handle_admin_panel))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^❌ Отмена рассылки$'), handle_admin_panel))
     
     # Обработчик неизвестных сообщений
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
@@ -446,12 +447,13 @@ def main():
     if os.getenv('RAILWAY_STATIC_URL'):
         # На Railway используем веб-хук
         port = int(os.environ.get('PORT', 8443))
-        webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL')}/{BOT_TOKEN}"
+        webhook_url = f"https://{os.getenv('RAILWAY_STATIC_URL')}"
+        
         application.run_webhook(
             listen="0.0.0.0",
             port=port,
-            url_path=BOT_TOKEN,
-            webhook_url=webhook_url
+            webhook_url=webhook_url,
+            secret_token='WEBHOOK_SECRET'
         )
     else:
         # Локально используем polling

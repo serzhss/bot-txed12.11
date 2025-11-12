@@ -2,8 +2,8 @@ import os
 import logging
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters, 
-    ContextTypes, ConversationHandler
+    Updater, CommandHandler, MessageHandler, Filters, 
+    ConversationHandler, CallbackContext
 )
 from database import Database
 
@@ -44,10 +44,10 @@ BIKE_DESCRIPTIONS = {
 Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.'''
 }
 
-# Размеры рам (упрощенные названия)
+# Размеры рам
 FRAME_SIZES = ['M (17")', 'L (19")', 'XL (21")']
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update: Update, context: CallbackContext):
     """Обработчик команды /start"""
     user = update.message.from_user
     db.add_user(user.id, user.username, user.first_name, user.last_name)
@@ -63,22 +63,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f'Привет, {user.first_name}! Добро пожаловать в официальный магазин TXED!\n\n'
         'Выберите нужный раздел:',
         reply_markup=reply_markup
     )
 
-async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_catalog(update: Update, context: CallbackContext):
     """Обработчик кнопки Каталог"""
     keyboard = [
         ['PRIMO', 'TERZO', 'ULTIMO'],
         ['TESORO', 'OTTIMO', '⬅️ Назад']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Выберите модель велосипеда:', reply_markup=reply_markup)
+    update.message.reply_text('Выберите модель велосипеда:', reply_markup=reply_markup)
 
-async def handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_about(update: Update, context: CallbackContext):
     """Обработчик кнопки О нас"""
     about_text = """О нас | Официальный импортер TXED в России
 
@@ -113,9 +113,9 @@ async def handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [['⬅️ Назад']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(about_text, reply_markup=reply_markup)
+    update.message.reply_text(about_text, reply_markup=reply_markup)
 
-async def handle_specialist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_specialist(update: Update, context: CallbackContext):
     """Обработчик кнопки Позвать специалиста"""
     user = update.message.from_user
     db.update_user_activity(user.id)
@@ -124,13 +124,13 @@ async def handle_specialist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_info = f"Пользователь {user.first_name} (ID: {user.id}) хочет связаться с Вами"
     
     try:
-        await context.bot.send_message(ADMIN_ID, user_info)
-        await update.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")
+        context.bot.send_message(ADMIN_ID, user_info)
+        update.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")
     except Exception as e:
-        await update.message.reply_text("❌ Произошла ошибка при отправке уведомления. Попробуйте позже.")
+        update.message.reply_text("❌ Произошла ошибка при отправке уведомления. Попробуйте позже.")
         logger.error(f"Error sending notification to admin: {e}")
 
-async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_bike_model(update: Update, context: CallbackContext):
     """Обработчик выбора модели велосипеда"""
     bike_model = update.message.text
     user = update.message.from_user
@@ -143,17 +143,17 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [['🛒 Заказать', '⬅️ Назад к моделям']]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         
-        await update.message.reply_text(description, reply_markup=reply_markup)
+        update.message.reply_text(description, reply_markup=reply_markup)
 
-async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_order_start(update: Update, context: CallbackContext):
     """Начало оформления заказа - выбор размера рамы"""
     keyboard = [[size] for size in FRAME_SIZES]
     keyboard.append(['⬅️ Назад'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Выберите размер рамы:', reply_markup=reply_markup)
+    update.message.reply_text('Выберите размер рамы:', reply_markup=reply_markup)
 
-async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_frame_size(update: Update, context: CallbackContext):
     """Обработчик выбора размера рамы"""
     frame_size = update.message.text
     user = update.message.from_user
@@ -162,28 +162,28 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if frame_size in FRAME_SIZES:
         context.user_data['frame_size'] = frame_size
         
-        await update.message.reply_text(
+        update.message.reply_text(
             'Отлично! Теперь введите ваши данные для оформления заказа.\n\n'
             'Введите ваше ФИО:',
             reply_markup=ReplyKeyboardRemove()
         )
         return ORDER_NAME
 
-async def get_order_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def get_order_name(update: Update, context: CallbackContext):
     """Получение имени пользователя"""
     context.user_data['user_name'] = update.message.text
     
-    await update.message.reply_text('Введите ваш номер телефона:')
+    update.message.reply_text('Введите ваш номер телефона:')
     return ORDER_PHONE
 
-async def get_order_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def get_order_phone(update: Update, context: CallbackContext):
     """Получение телефона пользователя"""
     context.user_data['user_phone'] = update.message.text
     
-    await update.message.reply_text('Введите ваш email:')
+    update.message.reply_text('Введите ваш email:')
     return ORDER_EMAIL
 
-async def get_order_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def get_order_email(update: Update, context: CallbackContext):
     """Получение email и завершение заказа"""
     user = update.message.from_user
     context.user_data['user_email'] = update.message.text
@@ -209,7 +209,7 @@ Email: {context.user_data['user_email']}
 ID пользователя: {user.id}"""
     
     try:
-        await context.bot.send_message(ADMIN_ID, order_info)
+        context.bot.send_message(ADMIN_ID, order_info)
     except Exception as e:
         logger.error(f"Error sending order notification: {e}")
     
@@ -224,7 +224,7 @@ ID пользователя: {user.id}"""
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
         reply_markup=reply_markup
     )
@@ -233,7 +233,7 @@ ID пользователя: {user.id}"""
     context.user_data.clear()
     return ConversationHandler.END
 
-async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def cancel_order(update: Update, context: CallbackContext):
     """Отмена оформления заказа"""
     user = update.message.from_user
     
@@ -247,7 +247,7 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         'Оформление заказа отменено.',
         reply_markup=reply_markup
     )
@@ -256,12 +256,12 @@ async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # АДМИН-ПАНЕЛЬ
-async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_admin_panel(update: Update, context: CallbackContext):
     """Обработчик админ-панели"""
     user = update.message.from_user
     
     if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа к админ-панели")
+        update.message.reply_text("❌ У вас нет доступа к админ-панели")
         return
     
     keyboard = [
@@ -270,14 +270,14 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text('⚙️ Панель администратора:', reply_markup=reply_markup)
+    update.message.reply_text('⚙️ Панель администратора:', reply_markup=reply_markup)
 
-async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_admin_stats(update: Update, context: CallbackContext):
     """Показ статистики"""
     user = update.message.from_user
     
     if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
+        update.message.reply_text("❌ У вас нет доступа")
         return
     
     stats = db.get_user_stats()
@@ -288,23 +288,23 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
 ✅ Активных сегодня: {stats['active_today']}
 🆕 Новых сегодня: {stats['new_today']}"""
     
-    await update.message.reply_text(stats_text)
+    update.message.reply_text(stats_text)
 
-async def handle_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_broadcast_start(update: Update, context: CallbackContext):
     """Начало рассылки"""
     user = update.message.from_user
     
     if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
+        update.message.reply_text("❌ У вас нет доступа")
         return
     
     context.user_data['awaiting_broadcast'] = True
-    await update.message.reply_text(
+    update.message.reply_text(
         'Введите сообщение для рассылки:',
         reply_markup=ReplyKeyboardMarkup([['❌ Отмена рассылки']], resize_keyboard=True)
     )
 
-async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_broadcast_message(update: Update, context: CallbackContext):
     """Обработка сообщения для рассылки"""
     user = update.message.from_user
     
@@ -315,11 +315,11 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     successful = 0
     failed = 0
     
-    await update.message.reply_text(f"🔄 Начинаю рассылку для {len(users)} пользователей...")
+    update.message.reply_text(f"🔄 Начинаю рассылку для {len(users)} пользователей...")
     
     for user_data in users:
         try:
-            await context.bot.send_message(user_data[0], update.message.text)
+            context.bot.send_message(user_data[0], update.message.text)
             successful += 1
         except Exception as e:
             failed += 1
@@ -332,7 +332,7 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         f"✅ Рассылка завершена!\n\n"
         f"✅ Успешно: {successful}\n"
         f"❌ Не удалось: {failed}",
@@ -341,18 +341,18 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
     
     context.user_data.pop('awaiting_broadcast', None)
 
-async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_users_list(update: Update, context: CallbackContext):
     """Показ списка пользователей"""
     user = update.message.from_user
     
     if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
+        update.message.reply_text("❌ У вас нет доступа")
         return
     
     users = db.get_all_users()
     
     if not users:
-        await update.message.reply_text("📝 Пользователей пока нет")
+        update.message.reply_text("📝 Пользователей пока нет")
         return
     
     users_text = "👥 Список пользователей:\n\n"
@@ -365,9 +365,9 @@ async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(users) > 50:
         users_text += f"... и еще {len(users) - 50} пользователей"
     
-    await update.message.reply_text(users_text)
+    update.message.reply_text(users_text)
 
-async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_back(update: Update, context: CallbackContext):
     """Обработчик кнопки Назад"""
     user = update.message.from_user
     db.update_user_activity(user.id)
@@ -381,68 +381,73 @@ async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Главное меню:', reply_markup=reply_markup)
+    update.message.reply_text('Главное меню:', reply_markup=reply_markup)
 
-async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_unknown_message(update: Update, context: CallbackContext):
     """Обработчик неизвестных сообщений"""
     user = update.message.from_user
     db.update_user_activity(user.id)
-    await update.message.reply_text("Пожалуйста, используйте кнопки меню для навигации.")
+    update.message.reply_text("Пожалуйста, используйте кнопки меню для навигации.")
 
 def main():
     """Основная функция запуска бота"""
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем updater
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
     
     # ConversationHandler для оформления заказа
     order_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
+        entry_points=[MessageHandler(Filters.regex('^🛒 Заказать$'), handle_order_start)],
         states={
-            ORDER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_name)],
-            ORDER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_phone)],
-            ORDER_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_order_email)],
+            ORDER_NAME: [MessageHandler(Filters.text & ~Filters.command, get_order_name)],
+            ORDER_PHONE: [MessageHandler(Filters.text & ~Filters.command, get_order_phone)],
+            ORDER_EMAIL: [MessageHandler(Filters.text & ~Filters.command, get_order_email)],
         },
-        fallbacks=[MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), cancel_order)]
+        fallbacks=[MessageHandler(Filters.regex('^⬅️ Назад$'), cancel_order)]
     )
     
     # Обработчики сообщений
-    application.add_handler(CommandHandler('start', start_command))
-    application.add_handler(order_conv_handler)
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), handle_specialist))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⚙️ Админ-панель$'), handle_admin_panel))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📊 Статистика$'), handle_admin_stats))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📢 Рассылка$'), handle_broadcast_start))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👥 Список пользователей$'), handle_users_list))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Выйти из админки$'), handle_back))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), handle_back))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
+    dispatcher.add_handler(CommandHandler('start', start_command))
+    dispatcher.add_handler(order_conv_handler)
+    dispatcher.add_handler(MessageHandler(Filters.regex('^🚲 Каталог$'), handle_catalog))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^ℹ️ О нас$'), handle_about))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^👨‍💼 Позвать специалиста$'), handle_specialist))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^⚙️ Админ-панель$'), handle_admin_panel))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^📊 Статистика$'), handle_admin_stats))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^📢 Рассылка$'), handle_broadcast_start))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^👥 Список пользователей$'), handle_users_list))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^⬅️ Выйти из админки$'), handle_back))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^⬅️ Назад$'), handle_back))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^⬅️ Назад к моделям$'), handle_catalog))
     
     # Обработчики выбора моделей и размеров
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size))
     
     # Обработчик для рассылки
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
+    dispatcher.add_handler(MessageHandler(
+        Filters.text & ~Filters.command & ~Filters.regex('^❌ Отмена рассылки$'), 
         handle_broadcast_message
     ))
     
     # Обработчик отмены рассылки
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^❌ Отмена рассылки$'), handle_admin_panel))
+    dispatcher.add_handler(MessageHandler(Filters.regex('^❌ Отмена рассылки$'), handle_admin_panel))
     
     # Обработчик неизвестных сообщений
-    application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
+    dispatcher.add_handler(MessageHandler(Filters.all, handle_unknown_message))
     
     # Запускаем бота
-    port = int(os.environ.get('PORT', 8443))
-    application.run_webhook(
+    PORT = int(os.environ.get('PORT', 8443))
+    
+    # На Railway используем веб-хук
+    updater.start_webhook(
         listen="0.0.0.0",
-        port=port,
-        webhook_url="https://your-app-name.railway.app/",
-        secret_token='WEBHOOK_SECRET'
+        port=PORT,
+        url_path=BOT_TOKEN,
+        webhook_url=f"https://{os.getenv('RAILWAY_STATIC_URL', 'your-app.railway.app')}/{BOT_TOKEN}"
     )
+    
+    updater.idle()
 
 if __name__ == '__main__':
     main()

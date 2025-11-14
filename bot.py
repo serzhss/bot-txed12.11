@@ -1,27 +1,55 @@
 import os
 import logging
-import asyncio
+import datetime
+import time
 import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, CallbackContext, filters
+from telebot import TeleBot, types
+from telebot.handler_backends import State, StatesGroup
+from telebot.storage import StateRedisStorage
+from urllib.parse import urlparse
 
 # === ЛОГИРОВАНИЕ ===
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+print("Начало инициализации бота...")
 
 # === ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ===
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID', 445570258))
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))  # <-- int!
+REDIS_URL = os.getenv("REDIS_URL")
 
-if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN environment variable is required!")
-    logger.info("💡 How to fix: Go to your Railway project -> Settings -> Variables -> Add BOT_TOKEN")
+print(f"Токен: {'Да' if TOKEN else 'НЕТ'}")
+print(f"Админ ID: {ADMIN_ID}")
+print(f"Redis URL: {'Да' if REDIS_URL else 'НЕТ'}")
+
+if not TOKEN or not ADMIN_ID or not REDIS_URL:
+    print("ОШИБКА: Не хватает BOT_TOKEN, ADMIN_ID или REDIS_URL")
     exit(1)
 
-logger.info("✅ Bot token loaded successfully")
+# === ПАРСИНГ REDIS_URL ===
+try:
+    parsed = urlparse(REDIS_URL)
+    redis_host = parsed.hostname or 'localhost'
+    redis_port = parsed.port or 6379
+    redis_password = parsed.password
+    redis_db = int(parsed.path.lstrip('/')) if parsed.path else 0
+    print(f"Redis: {redis_host}:{redis_port}, db={redis_db}")
+except Exception as e:
+    print(f"Ошибка парсинга REDIS_URL: {e}")
+    exit(1)
+
+# === ИНИЦИАЛИЗАЦИЯ БОТА С REDIS ===
+try:
+    storage = StateRedisStorage(
+        host=redis_host,
+        port=redis_port,
+        password=redis_password,
+        db=redis_db
+    )
+    bot = TeleBot(TOKEN, state_storage=storage)
+    print("Бот инициализирован с Redis")
+except Exception as e:
+    print(f"Ошибка инициализации бота: {e}")
+    exit(1)
 
 # === БАЗА ДАННЫХ ===
 DB_FILE = "users.db"
@@ -43,7 +71,7 @@ def ensure_users_db():
     ''')
     conn.commit()
     conn.close()
-    logger.info(f"✅ Database {DB_FILE} ready")
+    print(f"БД {DB_FILE} готова")
 
 ensure_users_db()
 
@@ -64,7 +92,7 @@ def load_users():
         conn.close()
         return users
     except Exception as e:
-        logger.error(f"Error loading users: {e}")
+        print(f"Ошибка загрузки: {e}")
         return {}
 
 def save_users(users):
@@ -83,11 +111,10 @@ def save_users(users):
         conn.close()
         return True
     except Exception as e:
-        logger.error(f"Error saving users: {e}")
+        print(f"Ошибка сохранения: {e}")
         return False
 
 def add_user(user_id, username, first_name, last_name):
-    import datetime
     users = load_users()
     now = datetime.datetime.now().isoformat()
     uid = str(user_id)
@@ -110,7 +137,6 @@ def get_all_users():
     return load_users()
 
 def update_user_activity(user_id):
-    import datetime
     users = load_users()
     uid = str(user_id)
     if uid in users:
@@ -120,304 +146,116 @@ def update_user_activity(user_id):
     else:
         add_user(user_id, None, None, None)
 
+# === FSM ===
+class AdminForm(StatesGroup):
+    waiting_for_broadcast_message = State()
+
 # === КАТАЛОГ ===
-BIKE_DESCRIPTIONS = {
-    'PRIMO': {
-        'description': '''Маневренная, универсальная модель для активного фанового катания в холмистой местности.
-Велосипед базового уровня в нашей линейке, для зрелых любителей качества и современных тенденции велостроения. Розничная цена 50 000руб.''',
-        'photos': [
-            'https://optim.tildacdn.com/tild3663-6265-4666-b535-613361663030/-/format/webp/Photo-44.webp',
-            'https://optim.tildacdn.com/tild6263-6233-4537-a436-633033386132/-/format/webp/Photo-47.webp',
-            'https://optim.tildacdn.com/tild3038-3263-4935-a533-326637363030/-/format/webp/Photo-49.webp',
-            'https://optim.tildacdn.com/tild3831-3637-4836-b836-363934653638/-/format/webp/Photo-50.webp',
-            'https://optim.tildacdn.com/tild3734-6433-4835-b639-623036366165/-/format/webp/Photo-57.webp'
-        ]
+bikes = {
+    "PRIMO": {
+        "description": "<b>PRIMO</b>\n\nМаневренная, универсальная модель для активного фанового катания в холмистой местности.\n\nБазовый уровень линейки — для зрелых любителей качества и современных тенденций велостроения.\n\nРозничная цена 50 000 руб.",
+        "photos": [
+            "https://optim.tildacdn.com/tild6336-3032-4434-b935-346363326131/-/format/webp/Photo-70.webp",
+            "https://optim.tildacdn.com/tild6536-6564-4661-b563-323737643733/-/format/webp/Photo-45.webp",
+            "https://optim.tildacdn.com/tild6263-6233-4537-a436-633033386132/-/format/webp/Photo-47.webp",
+            "https://optim.tildacdn.com/tild3731-3531-4463-b933-386135363632/-/format/webp/Photo-48.webp",
+            "https://optim.tildacdn.com/tild3038-3263-4935-a533-326637363030/-/format/webp/Photo-49.webp",
+            "https://optim.tildacdn.com/tild3831-3637-4836-b836-363934653638/-/format/webp/Photo-50.webp",
+            "https://optim.tildacdn.com/tild6665-3839-4632-a663-613133313564/-/format/webp/Photo-55.webp",
+            "https://optim.tildacdn.com/tild3734-6433-4835-b639-623036366165/-/format/webp/Photo-57.webp"
+        ],
+        "specs": {
+            "Вилка": "UDING DS HLO", "Передний переключатель": "SHIMANO ALTUS M315", "Задний переключатель": "SHIMANO ALTUS M310",
+            "Шифтеры": "SHIMANO ALTUS M315 2x8s", "Тормоза": "SHIMANO MT 200", "Кассета": "SHIMANO CS-HG-41-8 11-34T",
+            "Цепь": "TEC C8 16S", "Система": "PROWHEEL CY-10TM", "Картридж": "GINEYEA BB73 68mm", "Ротор": "SHIMANO RT-26S 160мм",
+            "Втулки": "SOLON 901F/R AL", "Обода": "HENGTONG HLQC-GA10", "Покрышки": "KENDA K1162",
+            "Руль": "ZOOM MTB AL 31,8 720/760мм", "Вынос": "ZOOM TDS-C301", "Грипсы": "VELO VLG-609",
+            "Рулевая колонка": "GINEYEA GH-830", "Седло": "VELO VL-3534", "Подседельный штырь": "ZOOM SP-C212",
+            "Педали": "FENGDE NW-430"
+        }
     },
-    
-    'TERZO': {
-        'description': '''Спортивная модель для профессионального использования. 
-Идеальный выбор для соревнований и тренировок. Премиальное качество сборки. Розничная цена 75 000руб.''',
-        'photos': [
-            'https://optim.tildacdn.com/tild6165-6635-4737-a532-303866623732/-/format/webp/Photo-1.webp',
-            'https://optim.tildacdn.com/tild3866-3634-4337-b030-666134326134/-/format/webp/Photo-3.webp',
-            'https://optim.tildacdn.com/tild3232-6462-4263-a564-333965326565/-/format/webp/Photo-4.webp',
-            'https://optim.tildacdn.com/tild6330-3863-4234-a162-326465613431/-/format/webp/Photo-6.webp',
-            'https://optim.tildacdn.com/tild3339-3737-4462-a239-323865323936/-/format/webp/Photo-8.webp'
-        ]
+    "TERZO": {
+        "description": "<b>TERZO</b>\n\nНа треть эффективнее аналогов в этой нише.\nОтличное решение для тех, кто перерос прогулочный байк и готов для большего.\n\nРозничная цена 65 000 руб.",
+        "photos": ["https://optim.tildacdn.com/tild3531-3036-4463-b536-303235326633/-/format/webp/Photo-71.webp"],
+        "specs": {
+            "Вилка": "UDING DS HLO", "Передний переключатель": "-", "Задний переключатель": "SHIMANO CUES 9S",
+            "Шифтеры": "SHIMANO CUES 9S", "Тормоза": "SHIMANO MT 200", "Кассета": "SHIMANO CUES 11-41T 9S",
+            "Цепь": "SHIMANO LG500", "Система": "PROWHEEL C10YNW-32T", "Картридж": "GINEYEA BB73 68mm",
+            "Ротор": "SHIMANO RT-26M 180мм", "Втулки": "SOLON 901F/R AL", "Обода": "HENGTONG HLGC-GA10",
+            "Покрышки": "KENDA K1162", "Руль": "ZOOM MTB AL 31,8 740/760мм", "Вынос": "ZOOM TDS-RD301",
+            "Грипсы": "VELO VLG-609", "Рулевая колонка": "GINEYEA GH-830", "Седло": "VELO VL-3534",
+            "Подседельный штырь": "ZOOM SP-C212", "Педали": "FENGDE NW-430"
+        }
+    },
+    "ULTIMO": {
+        "description": "<b>ULTIMO</b>\n\nТоповый в линейке middle-сегмента трейловых велосипедов для прогрессирующих райдеров.\nПредназначен для гонок и катания на пересечённой местности со средним или существенным перепадом высот.\n\nРозничная цена 75 000 руб.",
+        "photos": ["https://optim.tildacdn.com/tild3637-6439-4237-b638-303336613863/-/format/webp/Photo-69.webp"],
+        "specs": {
+            "Вилка": "UDING DS HLO", "Передний переключатель": "-", "Задний переключатель": "SHIMANO CUES 10S",
+            "Шифтеры": "SHIMANO CUES 10S", "Тормоза": "SHIMANO MT 200", "Кассета": "SHIMANO CUES CS-LG400 11-48T 10S",
+            "Цепь": "SHIMANO LG500", "Система": "PROWHEEL RMZ 32T", "Картридж": "PROWHEEL PW-MBB73 HOLOWTECH 2",
+            "Ротор": "SHIMANO RT-26M 180мм", "Втулки": "SOLON 901F/R AL", "Обода": "HENGTONG HLGC-GA10",
+            "Покрышки": "OBOR W3104", "Руль": "ZOOM MTB AL 31,8 740/760мм", "Вынос": "ZOOM TDS-C301",
+            "Грипсы": "VELO VLG-609", "Рулевая колонка": "GINEYEA GH-830", "Седло": "VELO VL-3534",
+            "Подседельный штырь": "ZOOM SP-C212", "Педали": "FENGDE NW-430"
+        }
+    },
+    "TESORO": {
+        "description": "<b>TESORO</b>\n\nСбалансированный аппарат для катания в горах и холмистой местности, для техничных трасс с прыжками и виражами.\n\nРозничная цена 85 000 руб.",
+        "photos": ["https://optim.tildacdn.com/tild3932-3166-4537-b837-386365666162/-/format/webp/Photo-72.webp"],
+        "specs": {
+            "Вилка": "ZOOM 868 AIR BOOST", "Передний переключатель": "-", "Задний переключатель": "SHIMANO CUES 115",
+            "Шифтеры": "SHIMANO CUES 115", "Тормоза": "SHIMANO MT 200", "Кассета": "SHIMANO CUES CS-LG400 11-50T 11S",
+            "Цепь": "SHIMANO LG500", "Система": "PROWHEEL RMZ 32T", "Картридж": "PROWHEEL PW-MB73 HOLOWITECH 2",
+            "Ротор": "SHIMANO RT-26M 180мм", "Втулки": "SOLON 9081F/TR AL", "Обода": "ПИСТОНИРОВАННЫЙ STAR 32H",
+            "Покрышки": "OBOR W3104", "Руль": "ZOOM MTB AL 31,8 740/760мм", "Вынос": "ZOOM TDS-RD307A",
+            "Грипсы": "VELO VLG-609", "Рулевая колонка": "GINEYEA GH-830", "Седло": "VELO VLG-609",
+            "Подседельный штырь": "ZOOM SP218", "Педали": "FENGDE NW-430"
+        }
+    },
+    "OTTIMO": {
+        "description": "<b>OTTIMO</b>\n\nНа этом байке реально проехать кросс-кантрийный марафон, уверенно проходить сложные участки и крутые спуски.\nПозволяет чувствовать себя на равных с мировыми брендами в соревнованиях.\n\nРозничная цена 95 000 руб.",
+        "photos": ["https://optim.tildacdn.com/tild3662-3335-4362-a665-303137396364/-/format/webp/Photo-73.webp"],
+        "specs": {
+            "Вилка": "ROCK SHOX FS RECON 29F", "Передний переключатель": "-", "Задний переключатель": "SHIMANO CUES 11S",
+            "Шифтеры": "SHIMANO CUES 11S", "Тормоза": "SHIMANO MT 200", "Кассета": "SHIMANO CUES CS-LG400 11-50T 11S",
+            "Цепь": "SHIMANO LG500", "Система": "SHIMANO CUES FC-U6000-1", "Картридж": "SHIMANO BB-M501 HOLOWTECH 2",
+            "Ротор": "SHIMANO RT-26M 180мм", "Втулки": "SOLON 908TF/TR AL", "Обода": "ПИСТОНИРОВАННЫЙ STAR 32H",
+            "Покрышки": "MAXXIS RECON M355", "Руль": "ZOOM MTB AL 31,8 740/760мм", "Вынос": "ZOOM TDS-D479",
+            "Грипсы": "VELO VLG-1266-11D2", "Рулевая колонка": "GINEYEA GH-202", "Седло": "VELO 1C58",
+            "Подседельный штырь": "ZOOM SP218"
+        }
     }
 }
 
-# Размеры рам
-FRAME_SIZES = ['M (17")', 'L (19")', 'XL (21")']
+frame_sizes = {"M (17\")": "163-177 см", "L (19\")": "173-187 см", "XL (21\")": "182-197 см"}
+user_photo_index = {}
+user_selections = {}
 
-# Состояния для ConversationHandler
-ORDER_NAME_PHONE, NAME, PHONE = range(3)
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user = update.message.from_user
-    add_user(user.id, user.username, user.first_name, user.last_name)
-    
-    # Главное меню
-    keyboard = [
-        ['🚲 Каталог', 'ℹ️ О нас'],
-        ['👨‍💼 Позвать специалиста']
-    ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        f'Привет, {user.first_name}! Добро пожаловать в официальный магазин TXED!\n\n'
-        'Выберите нужный раздел:',
-        reply_markup=reply_markup
-    )
-
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /admin"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа к админ-панели")
+# === АДМИНКА ===
+@bot.message_handler(commands=['admin'])
+def admin_panel(msg):
+    if msg.from_user.id != ADMIN_ID:
+        bot.send_message(msg.chat.id, "Нет доступа")
         return
-    
-    keyboard = [
-        ['📊 Статистика', '📢 Рассылка'],
-        ['👥 Список пользователей', '⬅️ Выйти из админки']
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text('⚙️ Панель администратора:', reply_markup=reply_markup)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Статистика", "Рассылка", "Список пользователей", "Выйти из админки")
+    bot.send_message(msg.chat.id, f"<b>Админ-панель</b>\nПользователей: {len(get_all_users())}", parse_mode="HTML", reply_markup=kb)
 
-async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки Каталог"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    keyboard = [
-        ['PRIMO', 'TERZO'],
-        ['⬅️ Назад']
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Выберите модель велосипеда:', reply_markup=reply_markup)
-
-async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора модели велосипеда"""
-    bike_model = update.message.text
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    if bike_model in BIKE_DESCRIPTIONS:
-        bike_data = BIKE_DESCRIPTIONS[bike_model]
-        description = bike_data['description']
-        photos = bike_data['photos']
-        context.user_data['selected_bike'] = bike_model
-        
-        # Отправляем первую фотографию с описанием
-        await update.message.reply_photo(
-            photo=photos[0],
-            caption=f"🚲 {bike_model}\n\n{description}"
-        )
-        
-        # Отправляем остальные фотографии
-        for i, photo_url in enumerate(photos[1:], 2):
-            await update.message.reply_photo(
-                photo=photo_url,
-                caption=f"{bike_model} - фото {i}/{len(photos)}"
-            )
-            await asyncio.sleep(0.5)
-        
-        # Кнопки после показа всех фото
-        keyboard = [['🛒 Заказать', '⬅️ Назад к моделям']]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            f'Хотите заказать {bike_model} или посмотреть другие модели?',
-            reply_markup=reply_markup
-        )
-
-async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало оформления заказа"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    # Проверяем, что модель выбрана
-    if 'selected_bike' not in context.user_data:
-        await update.message.reply_text("❌ Сначала выберите модель велосипеда")
-        return ConversationHandler.END
-    
-    keyboard = [[size] for size in FRAME_SIZES]
-    keyboard.append(['⬅️ Отмена заказа'])
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Выберите размер рамы:', reply_markup=reply_markup)
-    
-    return ORDER_NAME_PHONE
-
-async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик выбора размера рамы"""
-    frame_size = update.message.text
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    if frame_size in FRAME_SIZES:
-        context.user_data['frame_size'] = frame_size
-        
-        await update.message.reply_text(
-            '📝 Введите ваше имя:',
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return NAME
-    
-    await update.message.reply_text("❌ Пожалуйста, выберите размер рамы из предложенных вариантов.")
-    return ORDER_NAME_PHONE
-
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение имени пользователя"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    user_name = update.message.text.strip()
-    
-    if len(user_name) < 2:
-        await update.message.reply_text("❌ Имя слишком короткое. Введите ваше настоящее имя:")
-        return NAME
-    
-    context.user_data['user_name'] = user_name
-    
-    await update.message.reply_text(
-        '📞 Теперь введите ваш номер телефона:'
-    )
-    return PHONE
-
-async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Получение телефона пользователя"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    user_phone = update.message.text.strip()
-    
-    # Базовая проверка номера телефона
-    if len(user_phone) < 5:
-        await update.message.reply_text("❌ Номер телефона слишком короткий. Введите корректный номер:")
-        return PHONE
-    
-    # Отправляем уведомление администратору
-    order_info = f"""🎯 НОВЫЙ ЗАКАЗ!
-
-Модель: {context.user_data['selected_bike']}
-Размер рамы: {context.user_data['frame_size']}
-Имя: {context.user_data['user_name']}
-Телефон: {user_phone}
-ID пользователя: {user.id}
-Username: @{user.username or 'не указан'}"""
-    
-    await context.bot.send_message(ADMIN_ID, order_info)
-    
-    # Возвращаем в главное меню
-    keyboard = [
-        ['🚲 Каталог', 'ℹ️ О нас'],
-        ['👨‍💼 Позвать специалиста']
-    ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
-        reply_markup=reply_markup
-    )
-    
-    # Очищаем данные пользователя
-    context.user_data.clear()
-    return ConversationHandler.END
-
-async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отмена оформления заказа"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    keyboard = [
-        ['🚲 Каталог', 'ℹ️ О нас'],
-        ['👨‍💼 Позвать специалиста']
-    ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        '❌ Оформление заказа отменено.',
-        reply_markup=reply_markup
-    )
-    
-    context.user_data.clear()
-    return ConversationHandler.END
-
-# АДМИН-ПАНЕЛЬ
-async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик админ-панели"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа к админ-панели")
-        return
-    
-    update_user_activity(user.id)
-    
-    keyboard = [
-        ['📊 Статистика', '📢 Рассылка'],
-        ['👥 Список пользователей', '⬅️ Выйти из админки']
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text('⚙️ Панель администратора:', reply_markup=reply_markup)
-
-async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показ статистики"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
-        return
-    
-    update_user_activity(user.id)
-    
+@bot.message_handler(func=lambda m: m.text and m.text == "Статистика" and m.from_user.id == ADMIN_ID)
+def show_stats(msg):
     users = get_all_users()
-    import datetime
     today = datetime.datetime.now().date()
     active_today = sum(1 for u in users.values() if u.get('last_activity') and datetime.datetime.fromisoformat(u['last_activity']).date() == today)
     total_messages = sum(u.get('messages_count', 0) for u in users.values())
-    
-    stats_text = f"""📊 Статистика бота:
+    bot.send_message(msg.chat.id, f"<b>Статистика</b>\nВсего: {len(users)}\nСегодня: {active_today}\nСообщений: {total_messages}", parse_mode="HTML")
 
-👥 Всего пользователей: {len(users)}
-✅ Активных сегодня: {active_today}
-💬 Всего сообщений: {total_messages}"""
-
-    await update.message.reply_text(stats_text)
-
-async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показ списка пользователей"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
-        return
-    
-    update_user_activity(user.id)
-    
+@bot.message_handler(func=lambda m: m.text and m.text == "Список пользователей" and m.from_user.id == ADMIN_ID)
+def show_users_list(msg):
     users = get_all_users()
-    
     if not users:
-        await update.message.reply_text("📝 Пользователей пока нет")
+        bot.send_message(msg.chat.id, "Пользователей нет")
         return
-    
     sorted_users = sorted(users.items(), key=lambda x: x[1]['last_activity'], reverse=True)
     text = "<b>Последние пользователи:</b>\n\n"
     for i, (uid, data) in enumerate(sorted_users[:10], 1):
@@ -425,90 +263,179 @@ async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"   @{data['username'] or 'нет'}\n"
         text += f"   ID: {uid}\n"
         text += f"   Сообщений: {data['messages_count']}\n\n"
-    
-    await update.message.reply_text(text, parse_mode="HTML")
+    bot.send_message(msg.chat.id, text, parse_mode="HTML")
 
-async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки Назад"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    
-    keyboard = [
-        ['🚲 Каталог', 'ℹ️ О нас'],
-        ['👨‍💼 Позвать специалиста']
-    ]
-    
-    if user.id == ADMIN_ID:
-        keyboard.append(['⚙️ Админ-панель'])
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text('Главное меню:', reply_markup=reply_markup)
+@bot.message_handler(func=lambda m: m.text and m.text == "Рассылка" and m.from_user.id == ADMIN_ID)
+def start_broadcast(msg):
+    total = len(get_all_users())
+    if total == 0:
+        bot.send_message(msg.chat.id, "Нет пользователей")
+        return
+    bot.send_message(msg.chat.id, f"<b>Рассылка</b>\nПолучателей: {total}\n\nНапишите сообщение:", parse_mode="HTML")
+    bot.set_state(msg.from_user.id, AdminForm.waiting_for_broadcast_message, msg.chat.id)
 
-async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик неизвестных сообщений"""
-    user = update.message.from_user
-    update_user_activity(user.id)
-    await update.message.reply_text("❌ Пожалуйста, используйте кнопки меню для навигации.")
+@bot.message_handler(state=AdminForm.waiting_for_broadcast_message, content_types=['text'])
+def process_broadcast_message(msg):
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Разослать", callback_data="confirm_broadcast"))
+    kb.add(types.InlineKeyboardButton("Отмена", callback_data="cancel_broadcast"))
+    with bot.retrieve_data(msg.from_user.id, msg.chat.id) as data:
+        data['broadcast_message'] = msg.text
+    preview = msg.text[:100] + "..." if len(msg.text) > 100 else msg.text
+    bot.send_message(msg.chat.id, f"<b>Подтверждение</b>\n\n{preview}\n\nПолучателей: {len(get_all_users())}", parse_mode="HTML", reply_markup=kb)
 
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик ошибок"""
-    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+@bot.callback_query_handler(func=lambda call: call.data == "confirm_broadcast")
+def confirm_broadcast(call):
+    with bot.retrieve_data(call.from_user.id, call.message.chat.id) as data:
+        text = data.get('broadcast_message', '')
+    if not text:
+        bot.answer_callback_query(call.id, "Ошибка")
+        return
+    users = get_all_users()
+    success = 0
+    bot.edit_message_text("Рассылка начата...", call.message.chat.id, call.message.message_id)
+    for i, uid in enumerate(users.keys()):
+        try:
+            bot.send_message(int(uid), text)
+            success += 1
+            if (i + 1) % 10 == 0:
+                time.sleep(1)
+        except:
+            pass
+    bot.edit_message_text(f"<b>Готово</b>\nУспешно: {success}\nВсего: {len(users)}", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+    bot.delete_state(call.from_user.id, call.message.chat.id)
 
-def main():
-    """Основная функция запуска бота"""
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # ConversationHandler для оформления заказа
-    order_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.TEXT & filters.Regex('^🛒 Заказать$'), handle_order_start)],
-        states={
-            ORDER_NAME_PHONE: [
-                MessageHandler(filters.TEXT & filters.Regex('^(M \\(17\"\\)|L \\(19\"\\)|XL \\(21\"\\))$'), handle_frame_size),
-                MessageHandler(filters.TEXT & filters.Regex('^⬅️ Отмена заказа$'), cancel_order)
-            ],
-            NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)
-            ],
-            PHONE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_phone)
-            ],
-        },
-        fallbacks=[
-            MessageHandler(filters.TEXT & filters.Regex('^⬅️ Отмена заказа$'), cancel_order),
-            CommandHandler('cancel', cancel_order),
-            MessageHandler(filters.ALL, cancel_order)
-        ]
-    )
-    
-    # Обработчики сообщений
-    application.add_handler(CommandHandler('start', start_command))
-    application.add_handler(CommandHandler('admin', admin_command))
-    application.add_handler(CommandHandler('cancel', cancel_order))
-    application.add_handler(order_conv_handler)
-    
-    # Обработчики кнопок
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), lambda u, c: u.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⚙️ Админ-панель$'), handle_admin_panel))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📊 Статистика$'), handle_admin_stats))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👥 Список пользователей$'), handle_users_list))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Выйти из админки$'), handle_back))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), handle_back))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
-    
-    # Обработчики выбора моделей
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO)$'), handle_bike_model))
-    
-    # Обработчик неизвестных сообщений
-    application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))
-    
-    # Добавляем обработчик ошибок
-    application.add_error_handler(error_handler)
-    
-    # Запускаем бота с polling
-    logger.info("✅ Starting bot with polling...")
-    application.run_polling()
+@bot.callback_query_handler(func=lambda call: call.data == "cancel_broadcast")
+def cancel_broadcast(call):
+    bot.delete_state(call.from_user.id, call.message.chat.id)
+    bot.edit_message_text("Отменено", call.message.chat.id, call.message.message_id)
 
-if __name__ == '__main__':
-    main()
+@bot.message_handler(func=lambda m: m.text and m.text == "Выйти из админки" and m.from_user.id == ADMIN_ID)
+def exit_admin(msg):
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Каталог", "Позвать специалиста", "О нас")
+    bot.send_message(msg.chat.id, "Вышли из админки", reply_markup=kb)
+
+# === ОСНОВНОЕ ===
+@bot.message_handler(commands=['start'])
+def start(msg):
+    add_user(msg.from_user.id, msg.from_user.username, msg.from_user.first_name, msg.from_user.last_name)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add("Каталог", "Позвать специалиста", "О нас")
+    bot.send_message(msg.chat.id, "Привет! Выберите действие:", reply_markup=kb)
+
+@bot.message_handler(func=lambda m: "специалиста" in m.text.lower())
+def call_specialist(msg):
+    update_user_activity(msg.from_user.id)
+    bot.send_message(msg.chat.id, "Специалист свяжется с вами!")
+    bot.send_message(ADMIN_ID, f"Запрос от @{msg.from_user.username or 'нет'} ({msg.from_user.id})")
+
+@bot.message_handler(func=lambda m: "Каталог" in m.text)
+def catalog(msg):
+    update_user_activity(msg.from_user.id)
+    kb = types.InlineKeyboardMarkup()
+    for bike in bikes:
+        kb.add(types.InlineKeyboardButton(bike, callback_data=bike))
+    bot.send_message(msg.chat.id, "Выберите модель:", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda call: call.data in bikes)
+def show_bike(call):
+    update_user_activity(call.from_user.id)
+    name = call.data
+    user_photo_index[call.from_user.id] = {'bike': name, 'index': 0}
+    show_photo(call.message, call.from_user.id, name, 0)
+    bot.answer_callback_query(call.id)
+
+def show_photo(message, user_id, bike_name, idx):
+    bike = bikes[bike_name]
+    photos = bike["photos"]
+    kb = types.InlineKeyboardMarkup()
+    if len(photos) > 1:
+        row = []
+        if idx > 0:
+            row.append(types.InlineKeyboardButton("Пред", callback_data=f"prev_photo_{bike_name}"))
+        row.append(types.InlineKeyboardButton(f"{idx+1}/{len(photos)}", callback_data="ignore"))
+        if idx < len(photos) - 1:
+            row.append(types.InlineKeyboardButton("След", callback_data=f"next_photo_{bike_name}"))
+        kb.row(*row)
+    kb.add(types.InlineKeyboardButton("Спецификация", callback_data=f"specs_{bike_name}"))
+    kb.add(types.InlineKeyboardButton("Заказать", callback_data=f"order_{bike_name}"))
+    kb.add(types.InlineKeyboardButton("Назад", callback_data="back_to_catalog"))
+    caption = bike["description"] if idx == 0 else f"Фото {idx+1}"
+    bot.send_photo(message.chat.id, photos[idx], caption=caption, reply_markup=kb, parse_mode="HTML")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith(("prev_photo_", "next_photo_")))
+def navigate_photo(call):
+    update_user_activity(call.from_user.id)
+    uid = call.from_user.id
+    if uid not in user_photo_index:
+        return
+    data = user_photo_index[uid]
+    bike = data['bike']
+    idx = data['index']
+    if call.data.startswith("prev"):
+        idx = max(0, idx - 1)
+    else:
+        idx = min(len(bikes[bike]["photos"]) - 1, idx + 1)
+    user_photo_index[uid]['index'] = idx
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except:
+        pass
+    show_photo(call.message, uid, bike, idx)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("specs_"))
+def show_specs(call):
+    update_user_activity(call.from_user.id)
+    name = call.data.replace("specs_", "")
+    specs = bikes[name]["specs"]
+    text = f"<b>Спецификация {name}</b>\n\n"
+    for k, v in specs.items():
+        text += f"• <b>{k}:</b> {v}\n"
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("Назад", callback_data=name))
+    bot.send_message(call.message.chat.id, text, parse_mode="HTML", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("order_"))
+def select_size(call):
+    update_user_activity(call.from_user.id)
+    name = call.data.replace("order_", "")
+    user_selections[call.from_user.id] = {"bike": name}
+    kb = types.InlineKeyboardMarkup()
+    for size, h in frame_sizes.items():
+        kb.add(types.InlineKeyboardButton(f"{size} ({h})", callback_data=f"size_{size}"))
+    kb.add(types.InlineKeyboardButton("Назад", callback_data=name))
+    bot.send_message(call.message.chat.id, f"Выбрано: {name}\n\nВыберите размер:", reply_markup=kb)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("size_"))
+def save_size(call):
+    update_user_activity(call.from_user.id)
+    size = call.data.replace("size_", "")
+    uid = call.from_user.id
+    user_selections[uid]["frame_size"] = size
+    user_selections[uid]["height_range"] = frame_sizes[size]
+    bot.send_message(call.message.chat.id, f"Отлично!\nМодель: {user_selections[uid]['bike']}\nРазмер: {size}\n\nНапишите имя и телефон:")
+
+@bot.message_handler(func=lambda m: any(c.isdigit() for c in m.text) and len(m.text) > 5)
+def save_order(msg):
+    update_user_activity(msg.from_user.id)
+    uid = msg.from_user.id
+    sel = user_selections.get(uid, {})
+    admin_msg = f"Новая заявка:\n\nПользователь: {msg.from_user.first_name}\nID: {uid}\nМодель: {sel.get('bike')}\nРазмер: {sel.get('frame_size')}\nКонтакты: {msg.text}"
+    bot.send_message(ADMIN_ID, admin_msg)
+    bot.send_message(msg.chat.id, "Спасибо! Мы свяжемся с вами.")
+    if uid in user_selections:
+        del user_selections[uid]
+
+@bot.message_handler(func=lambda m: True)
+def track(msg):
+    update_user_activity(msg.from_user.id)
+
+# === ЗАПУСК В РЕЖИМЕ POLLING ===
+if __name__ == "__main__":
+    print("Бот запущен в режиме polling (без webhook)")
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"Ошибка polling: {e}")
+        time.sleep(5)

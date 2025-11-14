@@ -37,26 +37,9 @@ except Exception as e:
     print(f"Ошибка парсинга REDIS_URL: {e}")
     exit(1)
 
-# === ИНИЦИАЛИЗАЦИЯ БОТА С REDIS (РАБОЧИЙ ВАРИАНТ ДЛЯ ВСЕХ ВЕРСИЙ) ===
-try:
-    parsed = urlparse(REDIS_URL)
-    redis_host = parsed.hostname or 'localhost'
-    redis_port = parsed.port or 6379
-    redis_password = parsed.password
-    redis_db = int(parsed.path.lstrip('/')) if parsed.path else 0
-
-    storage = StateRedisStorage(
-        host=redis_host,
-        port=redis_port,
-        password=redis_password,
-        db=redis_db,
-        prefix='bot_state'  # опционально, чтобы не мусорить в Redis
-    )
-    bot = TeleBot(TOKEN, state_storage=storage)
-    print("Бот успешно инициализирован с Redis-хранилищем состояний")
-except Exception as e:
-    print(f"Не удалось подключить Redis ({e}) → запускаемся с хранением в памяти")
-    bot = TeleBot(TOKEN)  # MemoryStorage по умолчанию
+# === ИНИЦИАЛИЗАЦИЯ БОТА — ПРОСТО И НАДЁЖНО (без Redis) ===
+bot = TeleBot(TOKEN)
+print("Бот запущен с хранением состояний в памяти (MemoryStorage)")
 
 # === БАЗА ДАННЫХ ===
 DB_FILE = "users.db"
@@ -438,34 +421,29 @@ def save_order(msg):
 def track(msg):
     update_user_activity(msg.from_user.id)
 
-# === ЗАПУСК — ФИНАЛЬНАЯ ВЕРСИЯ ДЛЯ RAILWAY (БОЛЬШЕ НИКОГДА НЕ БУДЕТ 409) ===
+# === ЗАПУСК — ФИНАЛЬНАЯ ВЕРСИЯ ДЛЯ RAILWAY ===
 if __name__ == "__main__":
     import random
     import time
 
-    # Даём старому контейнеру время умереть (на Railway это до 30–60 сек)
     delay = random.uniform(10, 30)
-    print(f"Ждём {delay:.1f} секунд, чтобы старый контейнер точно умер и не было 409 Conflict...")
+    print(f"Ждём {delay:.1f} секунд, чтобы старый контейнер точно умер...")
     time.sleep(delay)
 
     print("Запускаем polling в бесконечном цикле с перезапусками")
-
     while True:
         try:
             bot.infinity_polling(
-                none_stop=True,          # не умирать при ошибках сети
+                none_stop=True,
                 interval=0,
-                timeout=20,              # обязательно для Railway
-                long_polling_timeout=20,
-                allowed_updates=None
+                timeout=20,
+                long_polling_timeout=20
             )
         except Exception as e:
-            error_text = str(e)
-            if "409" in error_text or "Conflict" in error_text:
-                print("Получен 409 Conflict — это нормально при перезапуске. Ждём 15 сек и пробуем снова...")
+            if "409" in str(e) or "Conflict" in str(e):
+                print("409 Conflict — ждём и пробуем снова...")
                 time.sleep(15)
             else:
-                print(f"Polling упал с другой ошибкой: {e}")
+                print(f"Polling упал: {e}")
                 time.sleep(10)
-
 

@@ -1,2 +1,2 @@
-python-telegram-bot
-redis
+python-telegram-bot==21.10
+redis==5.0.1

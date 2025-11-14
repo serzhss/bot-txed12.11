@@ -431,11 +431,29 @@ def save_order(msg):
 def track(msg):
     update_user_activity(msg.from_user.id)
 
-# === ЗАПУСК В РЕЖИМЕ POLLING ===
+# === ЗАПУСК В РЕЖИМЕ POLLING (специально для Railway, Render и т.п.) ===
 if __name__ == "__main__":
-    print("Бот запущен в режиме polling (без webhook)")
-    try:
-        bot.infinity_polling()
-    except Exception as e:
-        print(f"Ошибка polling: {e}")
-        time.sleep(5)
+    import random
+    import time
+
+    # ←←← СЛУЧАЙНАЯ ЗАДЕРЖКА ПРИ СТАРТЕ (чтобы новые и старые контейнеры не дрались)
+    delay = random.uniform(0, 15)
+    print(f"Ждём {delay:.1f} секунд перед запуском polling (чтобы избежать 409 Conflict)...")
+    time.sleep(delay)
+
+    print("Бот стартует в режиме polling")
+    
+    while True:
+        try:
+            bot.infinity_polling(
+                none_stop=True,          # не падать навсегда при любой ошибке
+                interval=0,
+                timeout=20,              # обязательно для Railway
+                long_polling_timeout=20
+            )
+        except Exception as e:
+            # Любая ошибка (включая 409 Conflict) — просто перезапускаем polling
+            print(f"Polling упал с ошибкой: {e}")
+            print("Перезапуск через 5 секунд...")
+            time.sleep(5)
+

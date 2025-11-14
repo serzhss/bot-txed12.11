@@ -1,38 +1,126 @@
 import os
 import logging
 import asyncio
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler, filters,
-    ConversationHandler, ContextTypes
-)
-from database import Database
+import sqlite3
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, CallbackContext, filters
 
-# Настройка логирования
+# === ЛОГИРОВАНИЕ ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Токен бота из переменных окружения
+# === ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ===
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+ADMIN_ID = int(os.getenv('ADMIN_ID', 445570258))
+
 if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN environment variable is required! Set it in Railway environment variables.")
+    logger.error("❌ BOT_TOKEN environment variable is required!")
     logger.info("💡 How to fix: Go to your Railway project -> Settings -> Variables -> Add BOT_TOKEN")
-    # Используем fallback для тестирования, но в продакшене это должно быть установлено
-    BOT_TOKEN = "your_bot_token_here"  # Замените на ваш токен временно
+    exit(1)
 
-# ID администратора
-ADMIN_ID = 445570258
+logger.info("✅ Bot token loaded successfully")
 
-# Состояния для ConversationHandler
-ORDER_NAME_PHONE, NAME, PHONE = range(3)
+# === БАЗА ДАННЫХ ===
+DB_FILE = "users.db"
 
-# Инициализация базы данных
-db = Database()
+def ensure_users_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id TEXT PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            last_name TEXT,
+            full_name TEXT,
+            first_seen TEXT,
+            last_activity TEXT,
+            messages_count INTEGER
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    logger.info(f"✅ Database {DB_FILE} ready")
 
-# Тексты и фотографии для моделей велосипедов
+ensure_users_db()
+
+# === ПОЛЬЗОВАТЕЛИ ===
+def load_users():
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users")
+        rows = cursor.fetchall()
+        users = {}
+        for row in rows:
+            users[row[0]] = {
+                'username': row[1], 'first_name': row[2], 'last_name': row[3],
+                'full_name': row[4], 'first_seen': row[5], 'last_activity': row[6],
+                'messages_count': row[7]
+            }
+        conn.close()
+        return users
+    except Exception as e:
+        logger.error(f"Error loading users: {e}")
+        return {}
+
+def save_users(users):
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        for uid, data in users.items():
+            cursor.execute('''
+                INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                uid, data.get('username'), data.get('first_name'), data.get('last_name'),
+                data.get('full_name'), data.get('first_seen'), data.get('last_activity'),
+                data.get('messages_count')
+            ))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error saving users: {e}")
+        return False
+
+def add_user(user_id, username, first_name, last_name):
+    import datetime
+    users = load_users()
+    now = datetime.datetime.now().isoformat()
+    uid = str(user_id)
+    if uid in users:
+        users[uid].update({
+            'username': username, 'first_name': first_name, 'last_name': last_name,
+            'full_name': f"{first_name} {last_name or ''}".strip(),
+            'last_activity': now,
+            'messages_count': users[uid].get('messages_count', 0) + 1
+        })
+    else:
+        users[uid] = {
+            'username': username, 'first_name': first_name, 'last_name': last_name,
+            'full_name': f"{first_name} {last_name or ''}".strip(),
+            'first_seen': now, 'last_activity': now, 'messages_count': 1
+        }
+    save_users(users)
+
+def get_all_users():
+    return load_users()
+
+def update_user_activity(user_id):
+    import datetime
+    users = load_users()
+    uid = str(user_id)
+    if uid in users:
+        users[uid]['last_activity'] = datetime.datetime.now().isoformat()
+        users[uid]['messages_count'] = users[uid].get('messages_count', 0) + 1
+        save_users(users)
+    else:
+        add_user(user_id, None, None, None)
+
+# === КАТАЛОГ ===
 BIKE_DESCRIPTIONS = {
     'PRIMO': {
         'description': '''Маневренная, универсальная модель для активного фанового катания в холмистой местности.
@@ -56,60 +144,28 @@ BIKE_DESCRIPTIONS = {
             'https://optim.tildacdn.com/tild6330-3863-4234-a162-326465613431/-/format/webp/Photo-6.webp',
             'https://optim.tildacdn.com/tild3339-3737-4462-a239-323865323936/-/format/webp/Photo-8.webp'
         ]
-    },
-    
-    'ULTIMO': {
-        'description': '''Флагманская модель с инновационными технологиями.
-Максимальная производительность и комфорт. Для самых требовательных велосипедистов. Розничная цена 120 000руб.''',
-        'photos': [
-            'https://optim.tildacdn.com/tild3634-6164-4532-a639-383334633561/-/format/webp/Photo-58.webp',
-            'https://optim.tildacdn.com/tild3238-6530-4431-a135-346665323065/-/format/webp/Photo-61.webp',
-            'https://optim.tildacdn.com/tild3135-3365-4363-b236-346363303238/-/format/webp/Photo-62.webp',
-            'https://optim.tildacdn.com/tild3962-6133-4636-b236-313336356163/-/format/webp/Photo-67.webp'
-        ]
-    },
-    
-    'TESORO': {
-        'description': '''Городской велосипед с элегантным дизайном.
-Идеален для повседневного использования и прогулок по городу. Стиль и практичность. Розничная цена 45 000руб.''',
-        'photos': [
-            'https://optim.tildacdn.com/tild3661-3336-4362-a130-326639613866/-/format/webp/Photo-13.webp',
-            'https://optim.tildacdn.com/tild6131-3239-4237-a465-346663376637/-/format/webp/Photo-14.webp',
-            'https://optim.tildacdn.com/tild3732-3431-4132-b266-636138336465/-/format/webp/Photo-17.webp',
-            'https://optim.tildacdn.com/tild3835-3233-4337-b337-366431643565/-/format/webp/Photo-18.webp',
-            'https://optim.tildacdn.com/tild6330-6564-4434-a236-393039343938/-/format/webp/Photo-21.webp',
-            'https://optim.tildacdn.com/tild6531-3662-4733-a635-343765343739/-/format/webp/Photo-24.webp'
-        ]
-    },
-    
-    'OTTIMO': {
-        'description': '''Горный велосипед для экстремальных условий.
-Прочная конструкция и advanced технологии. Для настоящих любителей адреналина. Розничная цена 95 000руб.''',
-        'photos': [
-            'https://optim.tildacdn.com/tild6662-6461-4138-a661-323964656231/-/format/webp/Photo-27.webp',
-            'https://optim.tildacdn.com/tild3333-6366-4032-a632-356637323136/-/format/webp/Photo-30.webp',
-            'https://optim.tildacdn.com/tild6435-3566-4231-a232-303332323339/-/format/webp/Photo-35.webp',
-            'https://optim.tildacdn.com/tild3365-6263-4039-b632-653338326235/-/format/webp/Photo-36.webp',
-            'https://optim.tildacdn.com/tild3761-6261-4332-b839-653934353539/-/format/webp/Photo-37.webp',
-            'https://optim.tildacdn.com/tild3432-3963-4162-b565-373563326635/-/format/webp/Photo-38.webp',
-            'https://optim.tildacdn.com/tild3634-3132-4734-a666-336634666538/-/format/webp/Photo-43.webp'
-        ]
     }
 }
 
 # Размеры рам
 FRAME_SIZES = ['M (17")', 'L (19")', 'XL (21")']
 
+# Состояния для ConversationHandler
+ORDER_NAME_PHONE, NAME, PHONE = range(3)
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
     user = update.message.from_user
-    db.add_user(user.id, user.username, user.first_name, user.last_name)
+    add_user(user.id, user.username, user.first_name, user.last_name)
     
-    # Главное меню (без админ-панели)
+    # Главное меню
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
+    
+    if user.id == ADMIN_ID:
+        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -138,75 +194,20 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_catalog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки Каталог"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     keyboard = [
-        ['PRIMO', 'TERZO', 'ULTIMO'],
-        ['TESORO', 'OTTIMO', '⬅️ Назад']
+        ['PRIMO', 'TERZO'],
+        ['⬅️ Назад']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text('Выберите модель велосипеда:', reply_markup=reply_markup)
-
-async def handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки О нас"""
-    user = update.message.from_user
-    db.update_user_activity(user.id)
-    
-    about_text = """О нас | Официальный импортер TXED в России
-
-Компания "СИБВЕЛО" рада представить себя как официального импортера бренда TXED в России. Мы гордимся тем, что предлагаем российским потребителям качественную продукцию с 40-летней историей.
-
-Почему мы выбрали TXED?
-После тщательного анализа рынка мы остановились на бренде TXED благодаря его безупречной репутации в 50+ странах мира. Современное производство с европейскими стандартами качества.
-
-Наш путь с брендом:
-• 2023 — начало переговоров о сотрудничестве
-• 2024 — официальный старт продаж в России
-• Сегодня — активное развитие дилерской сети
-
-Что мы предлагаем:
-• Качественные велосипеды и E-bike по доступным ценам
-• Полную техническую поддержку
-• Гарантийное обслуживание на территории РФ
-• Постоянное наличие запчастей на складах
-
-Наши преимущества:
-Прямые поставки с завода позволяют нам поддерживать конкурентные цены и обеспечивать стабильное наличие товара.
-
-Наша миссия:
-Сделать современные велосипеды и E-bike доступными для широкого круга российских потребителей.
-
-Сайт: https://txedbikes.ru
-Напишите нам — ответим на все вопросы!
-
-С уважением,
-Команда "СИБВЕЛО"
-Официальный импортер TXED в России"""
-    
-    keyboard = [['⬅️ Назад']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text(about_text, reply_markup=reply_markup)
-
-async def handle_specialist(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки Позвать специалиста"""
-    user = update.message.from_user
-    db.update_user_activity(user.id)
-    
-    # Отправляем уведомление администратору
-    user_info = f"👨‍💼 ПОЛЬЗОВАТЕЛЬ ХОЧЕТ СВЯЗАТЬСЯ\n\nИмя: {user.first_name}\nID: {user.id}\nUsername: @{user.username or 'не указан'}"
-    
-    try:
-        await context.bot.send_message(ADMIN_ID, user_info)
-        await update.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")
-    except Exception as e:
-        await update.message.reply_text("❌ Произошла ошибка при отправке уведомления. Попробуйте позже.")
-        logger.error(f"Error sending notification to admin: {e}")
 
 async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора модели велосипеда"""
     bike_model = update.message.text
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     if bike_model in BIKE_DESCRIPTIONS:
         bike_data = BIKE_DESCRIPTIONS[bike_model]
@@ -226,7 +227,6 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 photo=photo_url,
                 caption=f"{bike_model} - фото {i}/{len(photos)}"
             )
-            # Небольшая задержка между отправкой фото
             await asyncio.sleep(0.5)
         
         # Кнопки после показа всех фото
@@ -239,9 +239,9 @@ async def handle_bike_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def handle_order_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало оформления заказа - выбор размера рамы"""
+    """Начало оформления заказа"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     # Проверяем, что модель выбрана
     if 'selected_bike' not in context.user_data:
@@ -260,7 +260,7 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик выбора размера рамы"""
     frame_size = update.message.text
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     if frame_size in FRAME_SIZES:
         context.user_data['frame_size'] = frame_size
@@ -277,7 +277,7 @@ async def handle_frame_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение имени пользователя"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     user_name = update.message.text.strip()
     
@@ -295,7 +295,7 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Получение телефона пользователя"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     user_phone = update.message.text.strip()
     
@@ -304,19 +304,8 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Номер телефона слишком короткий. Введите корректный номер:")
         return PHONE
     
-    # Сохраняем заказ в базу данных
-    try:
-        db.add_order(
-            user_id=user.id,
-            user_name=context.user_data['user_name'],
-            user_phone=user_phone,
-            user_email="Не указан",
-            bike_model=context.user_data['selected_bike'],
-            frame_size=context.user_data['frame_size']
-        )
-        
-        # Отправляем уведомление администратору
-        order_info = f"""🎯 НОВЫЙ ЗАКАЗ!
+    # Отправляем уведомление администратору
+    order_info = f"""🎯 НОВЫЙ ЗАКАЗ!
 
 Модель: {context.user_data['selected_bike']}
 Размер рамы: {context.user_data['frame_size']}
@@ -324,27 +313,24 @@ async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Телефон: {user_phone}
 ID пользователя: {user.id}
 Username: @{user.username or 'не указан'}"""
-        
-        await context.bot.send_message(ADMIN_ID, order_info)
-        
-        # Возвращаем в главное меню
-        keyboard = [
-            ['🚲 Каталог', 'ℹ️ О нас'],
-            ['👨‍💼 Позвать специалиста']
-        ]
-        
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        
-        await update.message.reply_text(
-            '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
-            reply_markup=reply_markup
-        )
-        
-    except Exception as e:
-        logger.error(f"Error saving order: {e}")
-        await update.message.reply_text(
-            "❌ Произошла ошибка при сохранении заказа. Пожалуйста, попробуйте позже."
-        )
+    
+    await context.bot.send_message(ADMIN_ID, order_info)
+    
+    # Возвращаем в главное меню
+    keyboard = [
+        ['🚲 Каталог', 'ℹ️ О нас'],
+        ['👨‍💼 Позвать специалиста']
+    ]
+    
+    if user.id == ADMIN_ID:
+        keyboard.append(['⚙️ Админ-панель'])
+    
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        '✅ Спасибо за заказ! Наш специалист свяжется с вами в ближайшее время для подтверждения.',
+        reply_markup=reply_markup
+    )
     
     # Очищаем данные пользователя
     context.user_data.clear()
@@ -353,12 +339,15 @@ Username: @{user.username or 'не указан'}"""
 async def cancel_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отмена оформления заказа"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
+    
+    if user.id == ADMIN_ID:
+        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
@@ -379,7 +368,7 @@ async def handle_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ У вас нет доступа к админ-панели")
         return
     
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     keyboard = [
         ['📊 Статистика', '📢 Рассылка'],
@@ -397,73 +386,21 @@ async def handle_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ У вас нет доступа")
         return
     
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
-    stats = db.get_user_stats()
+    users = get_all_users()
+    import datetime
+    today = datetime.datetime.now().date()
+    active_today = sum(1 for u in users.values() if u.get('last_activity') and datetime.datetime.fromisoformat(u['last_activity']).date() == today)
+    total_messages = sum(u.get('messages_count', 0) for u in users.values())
     
     stats_text = f"""📊 Статистика бота:
 
-👥 Всего пользователей: {stats['total_users']}
-✅ Активных сегодня: {stats['active_today']}
-🆕 Новых сегодня: {stats['new_today']}
-🛒 Всего заказов: {db.get_total_orders()}"""
+👥 Всего пользователей: {len(users)}
+✅ Активных сегодня: {active_today}
+💬 Всего сообщений: {total_messages}"""
 
     await update.message.reply_text(stats_text)
-
-async def handle_broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Начало рассылки"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID:
-        await update.message.reply_text("❌ У вас нет доступа")
-        return
-    
-    db.update_user_activity(user.id)
-    
-    context.user_data['awaiting_broadcast'] = True
-    await update.message.reply_text(
-        '📢 Введите сообщение для рассылки:',
-        reply_markup=ReplyKeyboardMarkup([['❌ Отмена рассылки']], resize_keyboard=True)
-    )
-
-async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка сообщения для рассылки"""
-    user = update.message.from_user
-    
-    if user.id != ADMIN_ID or not context.user_data.get('awaiting_broadcast'):
-        return
-    
-    users = db.get_all_users()
-    successful = 0
-    failed = 0
-    
-    await update.message.reply_text(f"🔄 Начинаю рассылку для {len(users)} пользователей...")
-    
-    for user_data in users:
-        try:
-            await context.bot.send_message(user_data[0], update.message.text)
-            successful += 1
-            # Задержка чтобы не превысить лимиты Telegram
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            failed += 1
-            logger.error(f"Error sending to user {user_data[0]}: {e}")
-    
-    # Возвращаем в админ-панель
-    keyboard = [
-        ['📊 Статистика', '📢 Рассылка'],
-        ['👥 Список пользователей', '⬅️ Выйти из админки']
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        f"✅ Рассылка завершена!\n\n"
-        f"✅ Успешно: {successful}\n"
-        f"❌ Не удалось: {failed}",
-        reply_markup=reply_markup
-    )
-    
-    context.user_data.pop('awaiting_broadcast', None)
 
 async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показ списка пользователей"""
@@ -473,35 +410,36 @@ async def handle_users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ У вас нет доступа")
         return
     
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
-    users = db.get_all_users()
+    users = get_all_users()
     
     if not users:
         await update.message.reply_text("📝 Пользователей пока нет")
         return
     
-    users_text = "👥 Список пользователей:\n\n"
-    for i, user_data in enumerate(users[:50], 1):
-        user_id, username, first_name, last_name, created_at = user_data
-        name = f"{first_name or ''} {last_name or ''}".strip() or 'Не указано'
-        username = f"@{username}" if username else 'Не указан'
-        users_text += f"{i}. ID: {user_id}\n   Имя: {name}\n   Username: {username}\n\n"
+    sorted_users = sorted(users.items(), key=lambda x: x[1]['last_activity'], reverse=True)
+    text = "<b>Последние пользователи:</b>\n\n"
+    for i, (uid, data) in enumerate(sorted_users[:10], 1):
+        text += f"{i}. {data['full_name']}\n"
+        text += f"   @{data['username'] or 'нет'}\n"
+        text += f"   ID: {uid}\n"
+        text += f"   Сообщений: {data['messages_count']}\n\n"
     
-    if len(users) > 50:
-        users_text += f"... и еще {len(users) - 50} пользователей"
-    
-    await update.message.reply_text(users_text)
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик кнопки Назад"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     
     keyboard = [
         ['🚲 Каталог', 'ℹ️ О нас'],
         ['👨‍💼 Позвать специалиста']
     ]
+    
+    if user.id == ADMIN_ID:
+        keyboard.append(['⚙️ Админ-панель'])
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text('Главное меню:', reply_markup=reply_markup)
@@ -509,18 +447,12 @@ async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик неизвестных сообщений"""
     user = update.message.from_user
-    db.update_user_activity(user.id)
+    update_user_activity(user.id)
     await update.message.reply_text("❌ Пожалуйста, используйте кнопки меню для навигации.")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ошибок"""
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
-    
-    try:
-        if update and update.message:
-            await update.message.reply_text("❌ Произошла непредвиденная ошибка. Пожалуйста, попробуйте еще раз.")
-    except Exception as e:
-        logger.error(f"Error in error handler: {e}")
 
 def main():
     """Основная функция запуска бота"""
@@ -557,27 +489,16 @@ def main():
     
     # Обработчики кнопок
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^🚲 Каталог$'), handle_catalog))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^ℹ️ О нас$'), handle_about))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), handle_specialist))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👨‍💼 Позвать специалиста$'), lambda u, c: u.message.reply_text("✅ Специалист уведомлен! С Вами свяжутся в ближайшее время.")))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⚙️ Админ-панель$'), handle_admin_panel))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📊 Статистика$'), handle_admin_stats))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^📢 Рассылка$'), handle_broadcast_start))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^👥 Список пользователей$'), handle_users_list))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Выйти из админки$'), handle_back))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад$'), handle_back))
     application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^⬅️ Назад к моделям$'), handle_catalog))
     
-    # Обработчики выбора моделей и размеров
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO|ULTIMO|TESORO|OTTIMO)$'), handle_bike_model))
-    
-    # Обработчик для рассылки
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & ~filters.Regex('^❌ Отмена рассылки$'), 
-        handle_broadcast_message
-    ))
-    
-    # Обработчик отмены рассылки
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^❌ Отмена рассылки$'), handle_admin_panel))
+    # Обработчики выбора моделей
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex('^(PRIMO|TERZO)$'), handle_bike_model))
     
     # Обработчик неизвестных сообщений
     application.add_handler(MessageHandler(filters.ALL, handle_unknown_message))

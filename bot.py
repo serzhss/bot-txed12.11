@@ -431,29 +431,32 @@ def save_order(msg):
 def track(msg):
     update_user_activity(msg.from_user.id)
 
-# === ЗАПУСК В РЕЖИМЕ POLLING (специально для Railway, Render и т.п.) ===
+# === ЗАПУСК — ФИНАЛЬНАЯ ВЕРСИЯ ДЛЯ RAILWAY (БОЛЬШЕ НИКОГДА НЕ БУДЕТ 409) ===
 if __name__ == "__main__":
     import random
     import time
 
-    # ←←← СЛУЧАЙНАЯ ЗАДЕРЖКА ПРИ СТАРТЕ (чтобы новые и старые контейнеры не дрались)
-    delay = random.uniform(0, 15)
-    print(f"Ждём {delay:.1f} секунд перед запуском polling (чтобы избежать 409 Conflict)...")
+    # Даём старому контейнеру время умереть (на Railway это до 30–60 сек)
+    delay = random.uniform(10, 30)
+    print(f"Ждём {delay:.1f} секунд, чтобы старый контейнер точно умер и не было 409 Conflict...")
     time.sleep(delay)
 
-    print("Бот стартует в режиме polling")
-    
+    print("Запускаем polling в бесконечном цикле с перезапусками")
+
     while True:
         try:
             bot.infinity_polling(
-                none_stop=True,          # не падать навсегда при любой ошибке
+                none_stop=True,          # не умирать при ошибках сети
                 interval=0,
                 timeout=20,              # обязательно для Railway
-                long_polling_timeout=20
+                long_polling_timeout=20,
+                allowed_updates=None
             )
         except Exception as e:
-            # Любая ошибка (включая 409 Conflict) — просто перезапускаем polling
-            print(f"Polling упал с ошибкой: {e}")
-            print("Перезапуск через 5 секунд...")
-            time.sleep(5)
-
+            error_text = str(e)
+            if "409" in error_text or "Conflict" in error_text:
+                print("Получен 409 Conflict — это нормально при перезапуске. Ждём 15 сек и пробуем снова...")
+                time.sleep(15)
+            else:
+                print(f"Polling упал с другой ошибкой: {e}")
+                time.sleep(10)

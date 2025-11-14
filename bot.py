@@ -37,19 +37,20 @@ except Exception as e:
     print(f"Ошибка парсинга REDIS_URL: {e}")
     exit(1)
 
-# === ИНИЦИАЛИЗАЦИЯ БОТА С REDIS ===
-try:
-    storage = StateRedisStorage(
-        host=redis_host,
-        port=redis_port,
-        password=redis_password,
-        db=redis_db
-    )
-    bot = TeleBot(TOKEN, state_storage=storage)
-    print("Бот инициализирован с Redis")
-except Exception as e:
-    print(f"Ошибка инициализации бота: {e}")
-    exit(1)
+# === ИНИЦИАЛИЗАЦИЯ БОТА С REDIS (новый способ для pyTelegramBotAPI ≥4.15) ===
+if REDIS_URL:
+    try:
+        # ←←← ЭТО САМОЕ ВАЖНОЕ ИЗМЕНЕНИЕ
+        storage = StateRedisStorage(url=REDIS_URL)   # ← вот так, одной строкой!
+        
+        bot = TeleBot(TOKEN, state_storage=storage)
+        print("Бот инициализирован с Redis (новый способ через url=)")
+    except Exception as e:
+        print(f"Ошибка Redis: {e}. Запускаемся без хранения состояний.")
+        bot = TeleBot(TOKEN)
+else:
+    print("REDIS_URL не задан → используем память")
+    bot = TeleBot(TOKEN)
 
 # === БАЗА ДАННЫХ ===
 DB_FILE = "users.db"
@@ -460,3 +461,4 @@ if __name__ == "__main__":
             else:
                 print(f"Polling упал с другой ошибкой: {e}")
                 time.sleep(10)
+
